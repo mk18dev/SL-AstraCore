@@ -10,6 +10,13 @@ from pathlib import Path
 import uvicorn
 
 
+def _server_host() -> str:
+    """Use the dashboard's safe loopback default for CLI serving too."""
+    from dashboard_app import _server_host as dashboard_server_host
+
+    return dashboard_server_host()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="astra",
@@ -190,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"Access token: {_ACCESS_TOKEN}")
         print("(authentication is always enabled)\n")
-        uvicorn.run("dashboard_app:app", host="127.0.0.1", port=args.port)
+        uvicorn.run("dashboard_app:app", host=_server_host(), port=args.port)
         return 0
 
     from astra.runtime.orchestrator import RuntimeOrchestrator
