@@ -39,6 +39,7 @@ _IMPORT_NODES = {
     "javascript": ("import_statement", "call_expression"),
     "typescript": ("import_statement", "call_expression"),
     "tsx": ("import_statement", "call_expression"),
+    "php": ("namespace_use_declaration",),
 }
 
 _LANG_EXTENSIONS = {
