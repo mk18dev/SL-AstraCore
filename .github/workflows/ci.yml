@@ -138,6 +138,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip pip-audit
           pip-audit -r requirements.txt
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Validate all GitHub Actions workflows
+        run: "$(go env GOPATH)/bin/actionlint" -color
 
   docker:
     name: Docker build and smoke test
@@ -195,23 +199,10 @@ jobs:
           STRICT_KPI: "1"
         run: python -m pytest tests/test_benchmarks_kpi.py -q -s
 
-  workflow_validation:
-    name: workflow validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Install actionlint
-        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-      - name: Validate all GitHub Actions workflows
-        run: "$(go env GOPATH)/bin/actionlint" -color
-
   ci-gate:
     name: CI required gate
     if: always()
-    needs: [test, security, docker, codeql, performance, workflow_validation]
+    needs: [test, security, docker, codeql, performance]
     runs-on: ubuntu-latest
     steps:
       - name: Require every upstream job
@@ -221,12 +212,10 @@ jobs:
           DOCKER_RESULT: ${{ needs.docker.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           PERFORMANCE_RESULT: ${{ needs.performance.result }}
-          WORKFLOW_RESULT: ${{ needs.workflow_validation.result }}
         run: |
-          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT performance=$PERFORMANCE_RESULT workflow_validation=$WORKFLOW_RESULT"
+          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT performance=$PERFORMANCE_RESULT"
           test "$TEST_RESULT" = "success"
           test "$SECURITY_RESULT" = "success"
           test "$DOCKER_RESULT" = "success"
           test "$CODEQL_RESULT" = "success" || test "$CODEQL_RESULT" = "skipped"
           test "$PERFORMANCE_RESULT" = "success"
-          test "$WORKFLOW_RESULT" = "success"
