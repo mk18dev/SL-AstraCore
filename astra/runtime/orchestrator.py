@@ -615,7 +615,7 @@ class RuntimeOrchestrator:
 
             try:
                 if seed_node_ids:
-                    engine = ContextEngine(storage)
+                    engine = ContextEngine(storage, repo_root=record.root_path)
                     return engine.generate_context_pack(
                         query_intent=query_intent,
                         seed_nodes=list(seed_node_ids),
