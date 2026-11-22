@@ -1,6 +1,7 @@
 from astra.parser.jsts_adapter import JSTSParserAdapter
 from astra.parser.markdown_adapter import MarkdownParserAdapter
 from astra.parser.registry import ParserRegistry
+from astra.parser.tree_sitter_adapter import TreeSitterAdapter
 
 
 def test_jsts_parser_extracts_symbols_and_imports():
@@ -50,3 +51,22 @@ def test_registry_multi_language_support():
     assert registry.can_parse("notes.md")
     assert "javascript" in registry.supported_languages()
     assert "markdown" in registry.supported_languages()
+
+
+
+def test_javascript_import_extraction_ignores_regular_function_calls():
+    adapter = TreeSitterAdapter("javascript")
+    content = '''
+import React from "react";
+const value = format("not-an-import");
+const common = require("common-module");
+const dynamic = import("dynamic-module");
+'''
+    result = adapter.parse("app.js", content)
+
+    assert result.parse_errors == ()
+    assert {dep.target_module for dep in result.dependencies} == {
+        "react",
+        "common-module",
+        "dynamic-module",
+    }
