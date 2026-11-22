@@ -27,7 +27,7 @@ from astra.runtime.orchestrator import RuntimeOrchestrator
 # load. They are enforced only when STRICT_KPI is set (CI does); a local run
 # reports the measurement and skips the gate, so a busy laptop never reports a
 # phantom regression. Import it with `import os; os.environ["STRICT_KPI"]="1"`.
-STRICT_STRICT_KPI = os.environ.get("STRICT_KPI") == "1"
+STRICT_KPI = os.environ.get("STRICT_KPI") == "1"
 
 KPI = {
     "mutator_batch_100_nodes": 5.0,       # seconds
