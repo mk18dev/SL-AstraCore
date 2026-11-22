@@ -267,6 +267,7 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
     )
     runtime.register_repo(str(repo))
     first_record = runtime.index_repo(str(repo))
+    first_last_indexed = first_record.last_indexed
     runtime.query_context(
         root_path=str(repo),
         seed_node_ids=[],
@@ -284,7 +285,7 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
 
     assert second_record.node_count == first_record.node_count
     assert second_record.edge_count == first_record.edge_count
-    assert second_record.last_indexed != first_record.last_indexed
+    assert second_record.last_indexed != first_last_indexed
 
     runtime.query_context(
         root_path=str(repo),
