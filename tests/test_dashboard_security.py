@@ -91,12 +91,24 @@ def test_valid_token_is_accepted(auth_client):
     assert auth_client.get("/api/status").status_code == 200
 
 
-def test_shell_hands_the_token_to_the_spa():
-    """The first navigation has no header, so / must return the token in the body."""
+def test_shell_is_public_without_disclosing_the_token():
+    """The SPA shell is public; every data/API route remains bearer-protected."""
     plain = TestClient(da.app, raise_server_exceptions=False)
     response = plain.get("/")
+    assert response.status_code == 200
+    assert da._ACCESS_TOKEN not in response.text
+
+
+def test_query_parameter_cannot_authenticate_api_requests():
+    plain = TestClient(da.app, raise_server_exceptions=False)
+    response = plain.get("/api/status", params={"token": da._ACCESS_TOKEN})
     assert response.status_code == 401
-    assert response.json().get("token"), "the shell must hand the token to the SPA"
+
+
+def test_disable_auth_environment_flag_is_ignored(monkeypatch):
+    monkeypatch.setenv("ASTRA_DISABLE_AUTH", "1")
+    _token, required = da._resolve_token()
+    assert required is True
 
 
 def test_assets_stay_public():
