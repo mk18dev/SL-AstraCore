@@ -211,7 +211,7 @@ jobs:
   ci-gate:
     name: CI required gate
     if: always()
-    needs: [test, security, docker, codeql, performance, workflow-validation]
+    needs: [test, security, docker, codeql, performance, workflow_validation]
     runs-on: ubuntu-latest
     steps:
       - name: Require every upstream job
@@ -221,9 +221,9 @@ jobs:
           DOCKER_RESULT: ${{ needs.docker.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           PERFORMANCE_RESULT: ${{ needs.performance.result }}
-          WORKFLOW_RESULT: ${{ needs['workflow-validation'].result }}
+          WORKFLOW_RESULT: ${{ needs.workflow_validation.result }}
         run: |
-          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT performance=$PERFORMANCE_RESULT workflow-validation=$WORKFLOW_RESULT"
+          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT performance=$PERFORMANCE_RESULT workflow_validation=$WORKFLOW_RESULT"
           test "$TEST_RESULT" = "success"
           test "$SECURITY_RESULT" = "success"
           test "$DOCKER_RESULT" = "success"
