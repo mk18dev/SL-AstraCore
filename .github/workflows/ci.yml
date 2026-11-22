@@ -133,10 +133,26 @@ jobs:
       - name: Smoke test image
         run: docker run --rm --entrypoint python astracore:ci -c "import astra; import dashboard_app"
 
+  codeql:
+    name: CodeQL security analysis
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
+        with:
+          languages: python
+          build-mode: none
+      - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
+
   ci-gate:
     name: CI required gate
     if: always()
-    needs: [test, security, docker]
+    needs: [test, security, docker, codeql]
     runs-on: ubuntu-latest
     steps:
       - name: Require every upstream job
@@ -144,8 +160,10 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
         run: |
-          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT"
+          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT"
           test "$TEST_RESULT" = "success"
           test "$SECURITY_RESULT" = "success"
           test "$DOCKER_RESULT" = "success"
+          test "$CODEQL_RESULT" = "success" || test "$CODEQL_RESULT" = "skipped"
