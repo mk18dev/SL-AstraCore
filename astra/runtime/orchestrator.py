@@ -37,6 +37,8 @@ from astra.runtime.models import RepoRecord, RepoStatus
 from astra.runtime.repo_lock import file_lock
 from astra.storage.backend import StorageProvider
 from astra.context.engine import ContextEngine
+from astra.scanner.filesystem_walker import FilesystemWalker
+from astra.scanner.ignore_engine import IgnoreEngine
 
 logger = get_logger("astra.runtime.orchestrator")
 
@@ -920,78 +922,34 @@ class RuntimeOrchestrator:
         root_path: str,
         file_extensions: Optional[Sequence[str]] = None,
     ) -> list[str]:
-        """Scan a repo directory for indexable files.
+        """Enumerate indexable paths through the shared scanner pipeline.
 
-        Respects built-in ignores plus simple root/.gitignore rules
-        (dir names, *.ext globs, leading paths).
+        Runtime indexing and standalone repository scans now share the same
+        ignore engine and filesystem walker. Both .astraignore and the supported
+        root .gitignore patterns are applied consistently.
         """
         root = Path(root_path)
-        ignore_patterns = {
-            ".git", "__pycache__", "node_modules",
-            ".venv", "venv", "env", "dist", "build",
-            ".egg-info", ".tox", ".mypy_cache",
-            ".pytest_cache", "*.pyc", "*.pyo",
-        }
-        gitignore_rules = [r.replace("\\", "/").rstrip("/") for r in self._parse_gitignore(root / ".gitignore")]
-        ignore_names = ignore_patterns | {r for r in gitignore_rules if "/" not in r}
-        ignore_suffixes = tuple(
-            s[1:] for s in list(ignore_names) + gitignore_rules if s.startswith("*")
+        ignore = IgnoreEngine(
+            str(root),
+            respect_astraignore=True,
+            respect_gitignore=True,
         )
-        # Leading-path rules like "src/generated" match as rel-prefix.
-        ignore_prefixes = tuple(r + "/" for r in gitignore_rules if "/" in r)
-
+        walker = FilesystemWalker(
+            str(root),
+            ignore,
+            follow_symlinks=False,
+            include_hidden=False,
+        )
+        suffixes = tuple(file_extensions or ())
         files = []
-        # os.scandir reports is_dir()/is_file() from the directory entry, so no
-        # extra stat per path. Path.rglob("*") followed by is_dir() cost one
-        # stat per candidate — 20k of them on an 80-file tree, because every
-        # directory was visited and then re-queried.
-        stack = [root]
-        while stack:
-            current = stack.pop()
-            try:
-                entries = list(os.scandir(current))
-            except OSError:
+        for event in walker.walk():
+            if event["type"] != "file":
                 continue
-            for entry in entries:
-                name = entry.name
-                if name.startswith(".") and name != ".gitignore":
-                    continue
-                if name in ignore_names:
-                    continue
-                try:
-                    is_dir = entry.is_dir()
-                except OSError:
-                    continue
-                rel = os.path.relpath(entry.path, root).replace("\\", "/")
-                if is_dir:
-                    if not any(rel == p or rel.startswith(p) for p in ignore_prefixes):
-                        stack.append(Path(entry.path))
-                    continue
-                if ignore_suffixes and rel.endswith(ignore_suffixes):
-                    continue
-                if any(rel.startswith(prefix) for prefix in ignore_prefixes):
-                    continue
-                if file_extensions and not rel.endswith(tuple(file_extensions)):
-                    continue
-                files.append(entry.path)
-
+            rel_path = event["rel_path"].replace("\\", "/")
+            if suffixes and not rel_path.endswith(suffixes):
+                continue
+            files.append(event["path"])
         return sorted(files)
-
-    @staticmethod
-    def _parse_gitignore(gitignore_path: Path) -> list[str]:
-        """Extract simple skip rules from a .gitignore file."""
-        if not gitignore_path.is_file():
-            return []
-        rules = []
-        try:
-            for line in gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or line.startswith("!"):
-                    continue
-                rules.append(line.lstrip("/"))
-        except OSError:
-            return []
-        return rules
 
     def _get_record(self, root_path: str) -> RepoRecord:
         record = self._repos.get(_key(root_path))
