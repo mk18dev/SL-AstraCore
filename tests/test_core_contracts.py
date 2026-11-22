@@ -185,7 +185,7 @@ def _graph_fixture(tmp_path):
         SimpleNamespace(from_node="file:beta.py", to_node="function:resolve", type=SimpleNamespace(value="calls")),
     ]
     conflicts = SimpleNamespace(conflicts=[
-        SimpleNamespace(id="conflict:one", source_a="src/alpha.py", source_b="src/other.py")
+        SimpleNamespace(id="conflict:one", source_a="alpha.py", source_b="other.py")
     ])
     patterns = SimpleNamespace(patterns=[
         SimpleNamespace(id="pattern:one", affects=["file:alpha.py"])
