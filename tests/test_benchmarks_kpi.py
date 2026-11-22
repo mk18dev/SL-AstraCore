@@ -109,6 +109,10 @@ def test_duckdb_sqlite_throughput_ratio():
     # Both must complete; ratio is informational only (DuckDB is OLAP, SQLite is OLTP)
     print(f"\n  [kpi] backend timings: {results}")
     assert all(v < 5.0 for v in results.values()) or not STRICT_KPI, f"Backend too slow: {results}"
+    ratio = max(results.values()) / max(min(results.values()), 0.001)
+    assert ratio <= KPI["duckdb_vs_sqlite_parity"] or not STRICT_KPI, (
+        "Backend timing ratio exceeded KPI: " + repr(results)
+    )
 
 
 def test_compute_diff_correctness():
