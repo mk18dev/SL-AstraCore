@@ -79,6 +79,19 @@ jobs:
                    "--target", str(target), str(wheels[0])],
                   check=True,
               )
+              required_assets = [
+                  "dashboard_real.html",
+                  "favicon.ico",
+                  "manifest.webmanifest",
+                  "static",
+              ]
+              missing = [
+                  name for name in required_assets
+                  if not (target / name).exists()
+              ]
+              if missing:
+                  raise SystemExit(f"wheel is missing runtime assets: {missing}")
+
               env = os.environ.copy()
               env["PYTHONPATH"] = str(target)
               subprocess.run(
@@ -92,6 +105,8 @@ jobs:
 
       - name: Coverage diagnostic
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        env:
+          STRICT_KPI: "1"
         run: python coverage.py
 
       - name: Upload coverage report
