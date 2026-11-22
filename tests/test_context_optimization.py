@@ -7,6 +7,8 @@ Verifies:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from astra.context.token_budget import TokenBudget
 from astra.context.ranking import Ranking
 from astra.context.context_engine import ContextEngine
@@ -98,3 +100,39 @@ def test_context_engine_runs():
 def test_token_estimate_handles_non_ascii_text_conservatively():
     assert TokenBudget.estimate("سلام") == 4
     assert TokenBudget.estimate("a" * 100) == 34
+
+
+
+def test_hard_budget_drops_oversized_seed_and_keeps_later_fitting_nodes():
+    engine = ContextEngine(knowledge_graph=MockKnowledgeGraph())
+    engine._token_budget.set_budget(10)
+    pack = SimpleNamespace(
+        relevant_nodes=[
+            {
+                "id": "seed",
+                "label": "x" * 60,
+                "type": "FILE",
+                "relevance_score": 1.0,
+            },
+            {
+                "id": "small",
+                "label": "a",
+                "type": "FILE",
+                "relevance_score": 0.5,
+            },
+            {
+                "id": "small2",
+                "label": "b",
+                "type": "FILE",
+                "relevance_score": 0.4,
+            },
+        ],
+        metadata={"seed_ids": ["seed"]},
+        required_files=[],
+        token_estimate=0,
+    )
+
+    engine._enforce_token_budget(pack)
+
+    assert pack.token_estimate <= 10
+    assert [node["id"] for node in pack.relevant_nodes] == ["small", "small2"]
