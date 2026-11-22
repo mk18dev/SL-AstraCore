@@ -49,9 +49,6 @@ jobs:
           code=${PIPESTATUS[0]}
           echo "pytest exit code: $code"
           exit $code
-        env:
-          STRICT_KPI: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && '1' || '0' }}
-
       - name: Lint
         run: python -m ruff check astra/ tests/ dashboard_app.py coverage.py
 
@@ -108,8 +105,6 @@ jobs:
 
       - name: Coverage diagnostic
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        env:
-          STRICT_KPI: "1"
         run: python coverage.py
 
       - name: Upload coverage report
@@ -177,10 +172,33 @@ jobs:
           queries: security-extended
       - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
 
+  performance:
+    name: performance benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio ruff mypy types-PyYAML httpx2
+          python -m pip install -e .
+      - name: Enforce performance KPIs
+        env:
+          STRICT_KPI: "1"
+        run: python -m pytest tests/test_benchmarks_kpi.py -q -s
+
   ci-gate:
     name: CI required gate
     if: always()
-    needs: [test, security, docker, codeql]
+    needs: [test, security, docker, codeql, performance]
     runs-on: ubuntu-latest
     steps:
       - name: Require every upstream job
@@ -189,9 +207,11 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           DOCKER_RESULT: ${{ needs.docker.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
+          PERFORMANCE_RESULT: ${{ needs.performance.result }}
         run: |
-          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT"
+          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT codeql=$CODEQL_RESULT performance=$PERFORMANCE_RESULT"
           test "$TEST_RESULT" = "success"
           test "$SECURITY_RESULT" = "success"
           test "$DOCKER_RESULT" = "success"
           test "$CODEQL_RESULT" = "success" || test "$CODEQL_RESULT" = "skipped"
+          test "$PERFORMANCE_RESULT" = "success"
