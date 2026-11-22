@@ -37,7 +37,20 @@ class ProviderConfig:
         return bool(self.model.strip() and self.base_url.strip())
 
 
+def _normalize_api_key(value: str) -> str:
+    if not isinstance(value, str):
+        raise ProviderConfigurationError("API key must be a string")
+    normalized = value.strip()
+    if len(normalized) > 4096:
+        raise ProviderConfigurationError("API key is too long")
+    if any(ord(char) < 32 or ord(char) == 127 for char in normalized):
+        raise ProviderConfigurationError("API key cannot contain control characters")
+    return normalized
+
+
 def validate_base_url(value: str) -> str:
+    if not isinstance(value, str):
+        raise ProviderConfigurationError("base_url must be a string")
     value = value.strip().rstrip("/")
     parsed = urlparse(value)
     if parsed.scheme not in {"https", "http"} or not parsed.hostname:
@@ -63,13 +76,15 @@ class ProviderConfigStore:
     def load(self) -> ProviderConfig:
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                raise ProviderConfigurationError("provider config must be a JSON object")
             if raw.get("version") != 1:
                 raise ProviderConfigurationError("unsupported provider config version")
             config = ProviderConfig(
                 provider=str(raw.get("provider", "openai-compatible")),
                 base_url=validate_base_url(str(raw.get("base_url", "https://api.openai.com/v1"))),
                 model=str(raw.get("model", "gpt-4o-mini")).strip(),
-                api_key=str(raw.get("api_key", "")),
+                api_key=_normalize_api_key(raw.get("api_key", "")),
             )
         except FileNotFoundError:
             config = ProviderConfig()
@@ -81,7 +96,7 @@ class ProviderConfigStore:
             provider=os.environ.get("ASTRA_PROVIDER", config.provider),
             base_url=validate_base_url(os.environ.get("ASTRA_BASE_URL", config.base_url)),
             model=os.environ.get("ASTRA_MODEL", config.model).strip(),
-            api_key=os.environ.get("ASTRA_API_KEY", config.api_key),
+            api_key=_normalize_api_key(os.environ.get("ASTRA_API_KEY", config.api_key)),
         )
 
     def save(
@@ -93,8 +108,10 @@ class ProviderConfigStore:
         api_key: str | None,
         clear_api_key: bool = False,
     ) -> ProviderConfig:
-        if provider != "openai-compatible":
+        if not isinstance(provider, str) or provider != "openai-compatible":
             raise ProviderConfigurationError("only the OpenAI-compatible chat API is supported")
+        if not isinstance(model, str):
+            raise ProviderConfigurationError("model must be a string")
         normalized_url = validate_base_url(base_url)
         model = model.strip()
         if not model or len(model) > 200:
@@ -102,11 +119,11 @@ class ProviderConfigStore:
         if len(normalized_url) > 500:
             raise ProviderConfigurationError("base_url is too long")
         current = self.load()
+        if api_key is not None and not isinstance(api_key, str):
+            raise ProviderConfigurationError("API key must be a string")
         secret = "" if clear_api_key else (
-            current.api_key if api_key is None or api_key == "" else api_key.strip()
+            current.api_key if api_key is None or api_key == "" else _normalize_api_key(api_key)
         )
-        if len(secret) > 4096:
-            raise ProviderConfigurationError("API key is too long")
 
         config = ProviderConfig(provider, normalized_url, model, secret)
         self.path.parent.mkdir(parents=True, exist_ok=True)
