@@ -99,8 +99,8 @@ def test_graph_query_engine_impact_and_aggregations():
     storage = MemoryGraphStorage()
     engine = GraphQueryEngine(storage)
     impact = engine.impact_analysis("file:a.py", depth=2)
-    assert {node.id for node in impact.nodes} == {"symbol:run"}
-    assert impact.count == 1
+    assert {node.id for node in impact.nodes} == {"symbol:run", "file:b.py"}
+    assert impact.count == 2
     assert engine.node_count() == 4
     assert engine.edge_count() == 3
     assert engine.edge_type_summary() == {"IMPORTS": 2, "BELONGS_TO": 1}
