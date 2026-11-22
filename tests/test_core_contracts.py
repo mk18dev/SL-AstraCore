@@ -139,6 +139,8 @@ def test_checkpoint_engine_v2_persistence_and_incremental_operations(tmp_path):
     assert not loaded.is_unchanged(changed)
     assert loaded.deleted_paths(["src/main.py"]) == ["src/other.py"]
     loaded.retain_only(["src/main.py"])
+    assert set(loaded._files) == {"src/main.py"}
+    loaded.save()
     assert loaded.load() == {"src/main.py"}
 
 
