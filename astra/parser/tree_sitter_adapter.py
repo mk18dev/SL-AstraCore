@@ -154,7 +154,7 @@ class TreeSitterAdapter:
         self._parser = None
 
     def can_parse(self, file_path: str) -> bool:
-        return file_path.endswith(self.file_extensions)
+        return file_path.lower().endswith(self.file_extensions)
 
     def parse(self, file_path: str, content: str) -> IRFileParseResult:
         symbols: list[IRSymbol] = []
@@ -193,6 +193,17 @@ class TreeSitterAdapter:
                             line_end=node.end_point[0] + 1,
                         ))
                 elif node.type in import_nodes and self.language != "ruby":
+                    if node.type == "call_expression":
+                        function = node.child_by_field_name("function")
+                        callee = (
+                            content[function.start_byte:function.end_byte].strip()
+                            if function is not None
+                            else ""
+                        )
+                        # call_expression is included for CommonJS require() and
+                        # dynamic import(), not arbitrary application calls.
+                        if callee not in {"require", "import"}:
+                            continue
                     module = _import_target(node, content)
                     if module:
                         dependencies.append(IRDependency(
