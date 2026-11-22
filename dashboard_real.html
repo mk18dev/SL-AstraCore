@@ -410,6 +410,7 @@ select:focus,input:focus{outline:none;border-color:var(--gold)}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
     Add repository
   </button>
+  <button class="btn btn-ghost" onclick="openProviderModal()">Model settings</button>
 </header>
 
 <section class="stats" id="metricsRow" aria-label="Overview statistics"></section>
@@ -458,6 +459,7 @@ select:focus,input:focus{outline:none;border-color:var(--gold)}
     <div class="plate-hd"><span class="plate-title"><span class="plate-index">04</span><span class="plate-name">Context</span></span></div>
     <div class="plate-bd">
       <input class="ctx-input" type="text" id="ctxQuery" placeholder="Ask the repo — e.g. how does import resolution work?" aria-label="Context query">
+      <button class="btn btn-primary" style="margin-top:.55rem" onclick="runAgent()">Run AI review</button>
       <div class="ctx-stats" id="ctxStats" style="display:none"></div>
       <div id="ctxFiles"></div>
     </div>
@@ -516,6 +518,44 @@ select:focus,input:focus{outline:none;border-color:var(--gold)}
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeAddModal()">Cancel</button>
       <button class="btn btn-primary" onclick="addRepo()">Index &amp; open</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mProvider" role="dialog" aria-modal="true" aria-labelledby="mProviderTitle">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span class="modal-title" id="mProviderTitle">Model provider</span>
+      <button class="act-btn" onclick="closeProviderModal()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="providerKind">Provider protocol</label>
+      <select class="form-input" id="providerKind"><option value="openai-compatible">OpenAI-compatible API</option></select>
+      <div class="form-hint">Works with OpenAI, OpenRouter, Groq, Together, DeepSeek and local Ollama endpoints that expose /v1/chat/completions.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="providerBaseUrl">Base URL</label>
+      <input class="form-input" type="url" id="providerBaseUrl" value="https://api.openai.com/v1" autocomplete="url">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="providerModel">Model ID</label>
+      <input class="form-input" type="text" id="providerModel" value="gpt-4o-mini" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="providerApiKey">API key</label>
+      <input class="form-input" type="password" id="providerApiKey" placeholder="Leave blank to keep the saved key" autocomplete="new-password">
+      <div class="form-hint" id="providerKeyState">The key is sent to this local server and never returned to the browser.</div>
+    </div>
+    <label class="form-label" style="display:flex;align-items:center;gap:.5rem;margin-bottom:.8rem">
+      <input type="checkbox" id="providerClearKey"> Remove saved API key
+    </label>
+    <div id="providerMessage" class="form-hint" role="status" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeProviderModal()">Close</button>
+      <button class="btn btn-ghost" onclick="saveProviderConfig()">Save settings</button>
+      <button class="btn btn-primary" onclick="testProviderConnection()">Save &amp; test</button>
     </div>
   </div>
 </div>
@@ -1160,7 +1200,83 @@ $('repoPathInput').addEventListener('keydown',e=>{ if(e.key==='Enter') addRepo()
 document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='n'){ e.preventDefault(); openAddModal(); }
   if(e.key==='Escape' && mAdd.classList.contains('open')) closeAddModal();
+  if(e.key==='Escape' && mProvider.classList.contains('open')) closeProviderModal();
 });
+
+// ── Model provider settings and reviewed AI loop ───────────────────────
+const mProvider = $('mProvider');
+async function openProviderModal(){
+  mProvider.classList.add('open');
+  $('providerMessage').textContent='Loading saved settings…';
+  try{
+    const config=await api('GET','/api/providers/config');
+    $('providerKind').value=config.provider||'openai-compatible';
+    $('providerBaseUrl').value=config.base_url||'https://api.openai.com/v1';
+    $('providerModel').value=config.model||'gpt-4o-mini';
+    $('providerApiKey').value='';
+    $('providerClearKey').checked=false;
+    $('providerKeyState').textContent=config.key_present
+      ? 'An API key is saved on this machine. Leave blank to preserve it.'
+      : 'No API key saved. Some local providers do not require one.';
+    $('providerMessage').textContent=config.configured?'Settings loaded.':'Configure a model endpoint to enable AI review.';
+    requestAnimationFrame(()=>$('providerModel').focus());
+  }catch(e){ $('providerMessage').textContent='Could not load settings: '+e.message; }
+}
+function closeProviderModal(){ mProvider.classList.remove('open'); }
+async function saveProviderConfig(){
+  const payload={
+    provider:$('providerKind').value,
+    base_url:$('providerBaseUrl').value.trim(),
+    model:$('providerModel').value.trim(),
+    api_key:$('providerApiKey').value,
+    clear_api_key:$('providerClearKey').checked
+  };
+  try{
+    const saved=await api('POST','/api/providers/config',payload);
+    $('providerApiKey').value='';
+    $('providerClearKey').checked=false;
+    $('providerKeyState').textContent=saved.key_present
+      ? 'API key saved on this machine. It is never returned by the API.'
+      : 'No API key saved.';
+    $('providerMessage').textContent='Settings saved.';
+    toast('Model settings saved.');
+    return true;
+  }catch(e){ $('providerMessage').textContent='Save failed: '+e.message; toast('Could not save model settings.',true); return false; }
+}
+async function testProviderConnection(){
+  if(!await saveProviderConfig()) return;
+  $('providerMessage').textContent='Testing provider connection…';
+  try{
+    const result=await api('POST','/api/providers/test',{});
+    $('providerMessage').textContent='Connected · '+result.model;
+    toast('Provider connection successful.');
+  }catch(e){ $('providerMessage').textContent='Connection failed: '+e.message; toast('Provider test failed.',true); }
+}
+async function runAgent(){
+  if(!curRepo){ toast('Add or select a repository first.',true); return; }
+  const query=$('ctxQuery').value.trim();
+  if(!query){ toast('Enter a repository question first.',true); return; }
+  $('patchBody').innerHTML='<div class="empty">Building context and requesting a reviewed proposal…</div>';
+  try{
+    const result=await api('POST','/api/agent/run',{
+      path:curRepo.path, query, max_tokens:8000
+    });
+    const edits=(result.edits||[]).map(edit=>
+      '<div class="ctx-file"><strong>'+esc(edit.path)+'</strong><div class="muted">'+esc(edit.reason||'Proposed change')+'</div>'+
+      '<pre class="code-block">'+esc(JSON.stringify({added:edit.added,removed:edit.removed,modified:edit.modified},null,2))+'</pre></div>'
+    ).join('');
+    const warnings=(result.warnings||[]).map(w=>'<li>'+esc(w)+'</li>').join('');
+    $('patchBody').innerHTML=
+      '<div class="ctx-stats">Review: <strong>'+esc(result.status)+'</strong> · Risk: <strong>'+esc(result.risk)+'</strong>'+
+      ' · Confidence: '+fmt(Math.round((result.confidence||0)*100))+'%<br>Context: '+fmt(result.context.nodes)+' nodes · '+
+      fmt(result.context.tokens)+' / '+fmt(result.context.token_budget)+' tokens</div>'+
+      (warnings?'<ul>'+warnings+'</ul>':'')+(edits||'<div class="empty">The model returned no reviewable edits.</div>')+
+      '<div class="form-hint">Nothing was changed on disk. Applying remains a separate explicit action.</div>';
+  }catch(e){
+    $('patchBody').innerHTML='<div class="empty">AI review failed: '+esc(e.message)+'</div>';
+    toast('AI review failed.',true);
+  }
+}
 
 // ── Live stream ────────────────────────────────────────────────────────
 function setupRuntimeStream(){
