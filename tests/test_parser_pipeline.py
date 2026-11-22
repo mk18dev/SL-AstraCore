@@ -30,3 +30,13 @@ def test_registry_integration():
     assert registry.can_parse("test.py")
     assert registry.get_by_file_path("test.py") == adapter
     assert "python" in registry.supported_languages()
+
+
+
+def test_registry_extension_lookup_is_case_insensitive():
+    registry = get_parser_registry()
+    adapter = PythonParserAdapter()
+    registry.register(adapter)
+
+    assert registry.get_by_file_path("src/MAIN.PY") is adapter
+    assert registry.get_by_file_path("src/no-extension") is None
