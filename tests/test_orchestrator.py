@@ -305,3 +305,33 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
         edge.type.name == "IMPORTS" and edge.to_node.replace(chr(92), "/").endswith("/b.py")
         for edge in second_graph.edges
     )
+
+
+
+def test_seeded_context_pack_includes_source_and_obeys_budget(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / "main.py"
+    source.write_text(
+        "def target():\\n    return 42\\n\\n" + "\\n".join(
+            f"VALUE_{index} = {index}" for index in range(100)
+        ),
+        encoding="utf-8",
+    )
+    runtime = RuntimeOrchestrator(
+        metadata_db_path=str(tmp_path / "state" / "runtime.db")
+    )
+    runtime.register_repo(str(repo))
+    runtime.index_repo(str(repo))
+
+    pack = runtime.query_context(
+        root_path=str(repo),
+        seed_node_ids=[f"file:{source.resolve()}"],
+        query_intent="inspect target function",
+        max_tokens=160,
+    )
+
+    assert pack.nodes
+    assert any("def target" in node.snippet for node in pack.nodes)
+    assert all(node.relevance_score > 0 for node in pack.nodes)
+    assert pack.total_tokens <= pack.token_budget == 160
