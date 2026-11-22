@@ -136,3 +136,27 @@ def test_hard_budget_drops_oversized_seed_and_keeps_later_fitting_nodes():
 
     assert pack.token_estimate <= 10
     assert [node["id"] for node in pack.relevant_nodes] == ["small", "small2"]
+
+
+
+def test_context_engine_estimates_and_validates_pack_contracts():
+    engine = ContextEngine(knowledge_graph=MockKnowledgeGraph())
+    pack = SimpleNamespace(
+        relevant_nodes=[
+            {"id": "a", "label": "alpha.py", "type": "FILE"},
+            {"id": "a", "label": "duplicate", "type": "FILE"},
+            {"id": "b", "label": "beta.py", "type": "FILE"},
+        ],
+        required_files=["b.py", "a.py", "b.py"],
+        critical_dependencies=[{"from": "a", "to": "b"}],
+        relevant_concepts=["auth", "auth", "billing"],
+        conflicts_to_watch=["c1", "c1", "c2"],
+    )
+    estimated = engine._estimate_tokens(pack)
+    assert estimated > 0
+
+    engine._validate(pack)
+    assert [node["id"] for node in pack.relevant_nodes] == ["a", "b"]
+    assert pack.required_files == ["a.py", "b.py"]
+    assert set(pack.relevant_concepts) == {"auth", "billing"}
+    assert set(pack.conflicts_to_watch) == {"c1", "c2"}
