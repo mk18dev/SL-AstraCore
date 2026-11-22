@@ -13,7 +13,7 @@ Scan → Parse → Graph → Enrich → Context Packs, behind a live star-chart 
 [![ruff](https://img.shields.io/badge/ruff-clean-blue)](#quality)
 [![Python](https://img.shields.io/badge/python-3.11+-informational)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)](#install)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey)](#install)
 
 </div>
 
@@ -139,7 +139,7 @@ python -m ruff check astra/ tests/ dashboard_app.py   # All checks passed
 
 The codebase is type-clean under mypy (0 errors over 96 files) and lint-clean
 under a project-owned ruff ruleset, with CI running both on Python 3.11 and 3.12
-across Linux and Windows. Measured on this repository:
+across Linux, Windows and macOS. Measured on this repository:
 
 | | |
 |---|---|
