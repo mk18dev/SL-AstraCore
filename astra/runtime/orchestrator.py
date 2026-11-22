@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -89,9 +91,9 @@ class RuntimeOrchestrator:
         # lock per repo, shared by writers and readers, prevents that.
         self._repo_locks: dict[str, threading.Lock] = {}
         self._document_frequency: dict[str, tuple] = {}
-        # path -> (mtime_ns, size) per repo, so a re-index only parses
-        # what changed.
-        self._file_stamps: dict[str, dict[str, tuple[int, int]]] = {}
+        # path -> (mtime_ns, size, sha256) per repo. Content hashes catch edits
+        # that preserve both timestamps and file size.
+        self._file_stamps: dict[str, dict[str, tuple[int, int, str]]] = {}
         self._graph_cache: dict[str, tuple] = {}
         astra_home = os.environ.get("ASTRA_HOME") or os.path.join(
             os.path.expanduser("~"), ".astra"
@@ -131,6 +133,7 @@ class RuntimeOrchestrator:
             db_path=db_path,
         )
         self._repos[root_path] = record
+        self._file_stamps[root_path] = self._load_file_manifest(db_path)
         return record
 
     def index_repo(
@@ -183,46 +186,16 @@ class RuntimeOrchestrator:
             # read back from the graph so the resolver sees both endpoints.
             all_files = self._scan_repo_files(root_path, file_extensions)
 
-            previous = self._file_stamps.get(record.root_path, {})
-            current: dict[str, tuple[int, int]] = {}
-            changed: list[str] = []
-            for file_path in all_files:
-                try:
-                    info = os.stat(file_path)
-                except OSError:
-                    changed.append(file_path)
-                    continue
-                stamp = (info.st_mtime_ns, info.st_size)
-                current[file_path] = stamp
-                if previous.get(file_path) != stamp:
-                    changed.append(file_path)
-            skipped_paths = [
-                p for p in all_files
-                if p not in set(changed)
-            ]
-            if previous:
-                record.warnings.append(
-                    f"incremental: {len(changed)} of {len(all_files)} files changed"
-                )
-            files = changed
+            previous = self._file_stamps.get(record.root_path)
+            if previous is None:
+                previous = self._load_file_manifest(record.db_path)
 
-            # 2. Parse all files. A file that fails to read (sharing violation from
-            # an editor/AV/git, transient IO) is NOT the same as a deleted file —
-            # it must keep its existing graph nodes so a later index can recover.
-            #
-            # Read in a thread pool: the cost is opening the file, and on
-            # Windows an antivirus filter puts that on a syscall that releases
-            # the GIL, so threads overlap it. Parsing stays single-threaded —
-            # the Python AST is the CPU-bound half and threads would only add
-            # contention around the interpreter's own lock.
+            # Read each candidate once. The content is needed for parsing, so
+            # hashing it here avoids a second disk pass and detects edits that
+            # preserve both mtime_ns and byte size.
             contents: dict[str, str | None] = {}
-            # Skipped files are opened too, purely to notice a lock. An index
-            # that silently keeps a stale file because its mtime had not
-            # changed would leave the user believing the graph is current.
-            # The content is discarded; only the failure matters.
-            to_open = list(files) + list(skipped_paths)
             with ThreadPoolExecutor(max_workers=16) as pool:
-                futures = {pool.submit(_read_text, f): f for f in to_open}
+                futures = {pool.submit(_read_text, f): f for f in all_files}
                 for future in as_completed(futures):
                     file_path = futures[future]
                     try:
@@ -231,10 +204,40 @@ class RuntimeOrchestrator:
                         contents[file_path] = None
                         record.warnings.append(f"unreadable: {file_path} ({exc})")
 
-            parse_results = []
-            unreadable_files: list[str] = [
-                p for p in skipped_paths if contents.get(p) is None
+            current: dict[str, tuple[int, int, str]] = {}
+            changed: list[str] = []
+            unreadable_files: list[str] = []
+            for file_path in all_files:
+                content = contents.get(file_path)
+                if content is None:
+                    unreadable_files.append(file_path)
+                    continue
+                try:
+                    info = os.stat(file_path)
+                except OSError as exc:
+                    unreadable_files.append(file_path)
+                    record.warnings.append(f"unreadable: {file_path} ({exc})")
+                    continue
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                stamp = (info.st_mtime_ns, info.st_size, digest)
+                current[file_path] = stamp
+                if previous.get(file_path) != stamp:
+                    changed.append(file_path)
+
+            changed_set = set(changed)
+            skipped_paths = [
+                path for path in all_files
+                if path in current and path not in changed_set
             ]
+            if previous:
+                record.warnings.append(
+                    f"incremental: {len(changed)} of {len(all_files)} files changed"
+                )
+            files = changed
+
+            # 2. Parse changed files. Unchanged files retain their graph nodes
+            # and are reconstructed from stored metadata for dependency resolve.
+            parse_results = []
             for file_path in files:
                 content = contents.get(file_path)
                 if content is None:
@@ -468,6 +471,7 @@ class RuntimeOrchestrator:
             # or an antivirus filter rather than anything about the file.
             for failed in unreadable_files:
                 current.pop(failed, None)
+            self._save_file_manifest(record.db_path, current)
             self._file_stamps[record.root_path] = current
             record.file_count = len(current)
             record.node_count = storage.node_count()
@@ -495,6 +499,79 @@ class RuntimeOrchestrator:
             # the dict itself, which the callers of this method already hold.
             lock = self._repo_locks.setdefault(root_path, threading.Lock())
         return lock
+
+    @staticmethod
+    def _manifest_path(db_path: str) -> str:
+        return f"{db_path}.manifest.json"
+
+    def _load_file_manifest(self, db_path: str) -> dict[str, tuple[int, int, str]]:
+        """Load durable file fingerprints; a missing/corrupt manifest safely triggers a re-index."""
+        path = self._manifest_path(db_path)
+        try:
+            with open(path, "r", encoding="utf-8") as stream:
+                payload = json.load(stream)
+            if payload.get("version") != 1 or not isinstance(payload.get("files"), dict):
+                return {}
+            stamps = {}
+            for file_path, item in payload["files"].items():
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    stamps[file_path] = (
+                        int(item["mtime_ns"]),
+                        int(item["size"]),
+                        str(item["sha256"]),
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+            return stamps
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("could not read incremental manifest %s: %s", path, exc)
+            return {}
+
+    def _save_file_manifest(
+        self,
+        db_path: str,
+        stamps: dict[str, tuple[int, int, str]],
+    ) -> None:
+        """Atomically persist fingerprints for the graph that was just committed."""
+        path = self._manifest_path(db_path)
+        directory = os.path.dirname(path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(
+            prefix=".astra-manifest-",
+            suffix=".tmp",
+            dir=directory,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(
+                    {
+                        "version": 1,
+                        "files": {
+                            file_path: {
+                                "mtime_ns": stamp[0],
+                                "size": stamp[1],
+                                "sha256": stamp[2],
+                            }
+                            for file_path, stamp in sorted(stamps.items())
+                        },
+                    },
+                    stream,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        except Exception:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
 
     def refresh_repo(self, root_path: str) -> RepoRecord:
         """Full re-index of a registered repository. Idempotent."""
