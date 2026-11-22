@@ -33,7 +33,8 @@ every import a constellation line, patterns and conflicts are marked in the log.
 - **Persistent knowledge graph** — DuckDB (default) or SQLite, incremental indexing with atomic batch upserts
 - **Graph enrichment** — design-pattern detection (`repository`, `factory`, …), naming-convention analysis and cross-module naming-conflict detection, all wired into the index pipeline
 - **Context engine** — intent analysis, keyword/seed ranking, BFS dependency expansion, hard token budgets
-- **Model provider** — configure an OpenAI-compatible chat endpoint from the dashboard (hosted APIs or local Ollama); API keys stay server-side and are never returned by the settings API\n- **Agent loop** — builds repository context, calls the configured model, reviews proposed edits against real files, and refuses unanchored or unparsable changes; applying is a separate, explicit step
+- **Model provider** — configure an OpenAI-compatible chat endpoint from the dashboard (hosted APIs or local Ollama); API keys stay server-side and are never returned by the settings API
+- **Agent loop** — builds repository context, calls the configured model, reviews proposed edits against real files, and refuses unanchored or unparsable changes; applying is a separate, explicit step
 - **Live dashboard** — SSE event stream, interactive canvas star chart, file explorer, patch review, execution monitor, telemetry sparklines
 
 ## Install
@@ -81,10 +82,20 @@ astra propose F:\path\to\repo "why does charge subtract one" \
 astra apply F:\path\to\repo proposal.json
 ```
 
-The same review is `POST /api/agent/propose`, which takes the model's reply and
-returns the diff, the risk, and why anything was rejected. An edit whose
+The same review is `POST /api/agent/propose`, which takes a supplied model
+reply. The dashboard's **Run AI review** action uses the configured provider
+through `POST /api/agent/run`, builds repository context, and returns reviewed
+proposals. Both return diffs, risk, and rejection reasons. An edit whose
 `old_text` is not verbatim in the file it names is refused rather than applied,
 and `astra apply` refuses a proposal whose file changed since the review.
+
+Open **Model settings** in the dashboard to configure an OpenAI-compatible
+endpoint and model ID. Leave the API key field blank to preserve a saved key.
+The key is stored in `~/.astra/providers.json` (or
+`$ASTRA_HOME/providers.json`) with POSIX mode `0600` where supported. It is
+plaintext at rest, never returned by the settings API, and should be protected
+with local filesystem permissions. Remote endpoints require HTTPS; HTTP is
+allowed only for loopback providers such as Ollama.
 
 The dashboard mints an access token at startup and requires a bearer header on
 every API call. The HTML shell is public but never contains the token; paste the
@@ -139,27 +150,34 @@ python -m mypy astra/ dashboard_app.py          # Success: no issues in 96 files
 python -m ruff check astra/ tests/ dashboard_app.py   # All checks passed
 ```
 
-The codebase is type-clean under mypy (0 errors over 96 files) and lint-clean
-under a project-owned ruff ruleset, with CI running both on Python 3.11 and 3.12
-across Linux, Windows and macOS. Measured on this repository:
+The codebase is type-clean under mypy and lint-clean under the project Ruff
+ruleset. The last fully verified run (#45082074980) reported 498 passing tests,
+95.3% line coverage (5,176 / 5,434 executable lines), and green checks on Linux,
+Windows and macOS with Python 3.11 and 3.12.
 
-CI runs on Linux, Windows and macOS with Python 3.11 and 3.12. The required
-workflow gate includes tests, lint, type checking, wheel build/install smoke
-tests, Docker smoke tests, CodeQL, dependency audit, and a minimum 90% line
-coverage threshold for the `astra/` package.
+The required workflow gate includes tests, lint, type checking, wheel
+build/install smoke tests, Docker smoke tests, CodeQL, dependency audit, and a
+minimum 95% line coverage threshold for the `astra/` package.
 
 ### Known limitations
 
 Deliberate, not accidental:
 
 - **Single-user access control.** The dashboard is protected by a per-process
-  bearer token, not by accounts or roles. The token is printed to the server
-  terminal and is not embedded in the URL or HTML. The server binds all
-  interfaces when run directly; there is no TLS, so do not expose it beyond a
-  trusted network.
-- **No provider is wired in.** The agent loop takes the model's reply and
-  reviews it; it never calls one. Running a model is the caller's, because a
-  bundled provider means an API key, a network dependency and a bill.
+  bearer token, not by accounts or roles. Direct launches bind to
+  `127.0.0.1` by default; setting `ASTRA_HOST` explicitly opts into a
+  different bind address. Docker binds to `0.0.0.0` inside the container, so
+  publish it only behind a trusted TLS-terminating proxy and firewall.
+- **Provider scope.** Only OpenAI-compatible chat completions are implemented;
+  native Anthropic/Gemini protocols and model streaming are not.
+- **API key storage.** Provider keys are plaintext at rest in the local config
+  file, protected by POSIX mode `0600` where supported. They are not encrypted.
+- **Estimated token counts.** Context budgets use a conservative UTF-8
+  heuristic, not a model-specific tokenizer; exact provider token counts are
+  not guaranteed.
+- **Branch protection.** The CI gate is green, but GitHub branch-protection
+  settings are not confirmed active. See
+  [the required main-branch settings](docs/BRANCH_PROTECTION.md).
 - **A re-index reads the whole node table.** Unchanged files are not parsed
   again, which makes a re-index with nothing to do about 3x faster than a full
   one, but the write still reads every node, so a run with one changed file
@@ -169,6 +187,14 @@ Deliberate, not accidental:
   finds the file that declares it. The values themselves are not in the graph.
 - **BLIND_MAX depth.** Source nested deeper than ~900 levels (minified
   JavaScript) is skipped by the tree-sitter traversal.
+
+## Project and security documents
+
+- [Implementation status](IMPLEMENTATION_STATUS.md)
+- [Open issues and verified gaps](ISSUES.md)
+- [Contributing and quality policy](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Required main branch protection](docs/BRANCH_PROTECTION.md)
 
 ## License
 
