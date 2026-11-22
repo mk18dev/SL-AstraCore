@@ -50,7 +50,7 @@ jobs:
           echo "pytest exit code: $code"
           exit $code
         env:
-          STRICT_KPI: "1"
+          STRICT_KPI: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && '1' || '0' }}
 
       - name: Lint
         run: python -m ruff check astra/ tests/ dashboard_app.py coverage.py
