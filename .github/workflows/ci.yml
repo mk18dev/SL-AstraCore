@@ -4,24 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -29,25 +34,15 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # httpx2 backs starlette's TestClient on recent FastAPI; without it every
-          # module importing testclient fails at collection.
-          pip install pytest pytest-asyncio ruff mypy types-PyYAML httpx2
-          pip install -e .
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio ruff mypy types-PyYAML httpx2
+          python -m pip install -e .
 
-      # -rfE lists every failure in the summary. Without it a run that failed
-      # for a reason the reporter cannot reproduce showed nothing but the
-      # progress dots, which is how this stayed undiagnosed for several runs.
       - name: Tests
-        # bash, because PIPESTATUS is how pytest's exit code survives being
-        # piped through tee. The default shell is pwsh on Windows runners,
-        # where the pipeline reports tee's code instead and a failed run looks
-        # green — which is exactly the state this workflow was in.
         shell: bash
         run: |
           set +e
           python -m pytest tests/ -q --tb=short -rfE 2>&1 | tee tests-output.txt
-          # PIPESTATUS[0] is pytest's own code, not tee's.
           code=${PIPESTATUS[0]}
           echo "pytest exit code: $code"
           exit $code
@@ -60,50 +55,97 @@ jobs:
       - name: Types
         run: python -m mypy astra/ dashboard_app.py --python-version ${{ matrix.python-version }}
 
-      # The job-log endpoint returns 401 for every token available to the person
-      # fixing this, so a red build was undiagnosable. An issue is readable.
-      #
-      # This publishes what the failing step actually printed. It used to re-run
-      # the suite itself, which meant the issue showed a green run whenever the
-      # real failure depended on the step's environment — several Windows
-      # failures were reported as "282 passed" this way.
-      - name: Report failure
-        if: failure()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          OS_NAME: ${{ matrix.os }}
-          PY_VERSION: ${{ matrix.python-version }}
-        run: |
-          set +e
-          {
-            echo "### $OS_NAME / Python $PY_VERSION @ ${{ github.sha }}"
-            echo
-            echo '```'
-            if [ -f tests-output.txt ]; then
-              tail -c 50000 tests-output.txt
-            else
-              echo "(the Tests step wrote no output)"
-            fi
-            echo '```'
-            echo
-            echo "Linting and types, run separately:"
-            echo '```'
-            python -m ruff check astra/ tests/ dashboard_app.py 2>&1 | tail -40
-            python -m mypy astra/ dashboard_app.py --python-version "$PY_VERSION" 2>&1 | tail -40
-            echo '```'
-          } > body.md
-          if command -v gh >/dev/null 2>&1; then
-            gh issue create --title "CI failure: $OS_NAME / Python $PY_VERSION @ ${{ github.sha }}" --body-file body.md || true
-          else
-            cat body.md
-          fi
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir dist
 
-      - name: Keep the failure text
+      - name: Install wheel outside the source tree
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import sys
+          import tempfile
+
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected one wheel, found {len(wheels)}")
+
+          with tempfile.TemporaryDirectory() as temporary:
+              target = pathlib.Path(temporary) / "site"
+              subprocess.run(
+                  [sys.executable, "-m", "pip", "install", "--no-deps",
+                   "--target", str(target), str(wheels[0])],
+                  check=True,
+              )
+              env = os.environ.copy()
+              env["PYTHONPATH"] = str(target)
+              subprocess.run(
+                  [sys.executable, "-c",
+                   "import astra; from astra.cli import console_main; import dashboard_app"],
+                  cwd=temporary,
+                  env=env,
+                  check=True,
+              )
+          PY
+
+      - name: Coverage diagnostic
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: python coverage.py
+
+      - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' && always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coverage-report
+          path: coverage-report.json
+          if-no-files-found: ignore
+
+      - name: Keep test output on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ci-failure-${{ matrix.os }}-py${{ matrix.python-version }}
           path: tests-output.txt
           if-no-files-found: ignore
+
+  security:
+    name: dependency security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - name: Audit pinned runtime dependencies
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt
+
+  docker:
+    name: Docker build and smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build image
+        run: docker build --tag astracore:ci .
+      - name: Smoke test image
+        run: docker run --rm --entrypoint python astracore:ci -c "import astra; import dashboard_app"
+
+  ci-gate:
+    name: CI required gate
+    if: always()
+    needs: [test, security, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every upstream job
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+        run: |
+          echo "test=$TEST_RESULT security=$SECURITY_RESULT docker=$DOCKER_RESULT"
+          test "$TEST_RESULT" = "success"
+          test "$SECURITY_RESULT" = "success"
+          test "$DOCKER_RESULT" = "success"
