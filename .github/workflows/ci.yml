@@ -17,6 +17,7 @@ jobs:
   test:
     name: test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +26,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
@@ -50,7 +53,7 @@ jobs:
           STRICT_KPI: "1"
 
       - name: Lint
-        run: python -m ruff check astra/ tests/ dashboard_app.py
+        run: python -m ruff check astra/ tests/ dashboard_app.py coverage.py
 
       - name: Types
         run: python -m mypy astra/ dashboard_app.py --python-version ${{ matrix.python-version }}
@@ -128,8 +131,11 @@ jobs:
   security:
     name: dependency security audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
@@ -141,8 +147,11 @@ jobs:
   docker:
     name: Docker build and smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Build image
         run: docker build --tag astracore:ci .
       - name: Smoke test image
@@ -150,6 +159,7 @@ jobs:
 
   codeql:
     name: CodeQL security analysis
+    timeout-minutes: 20
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -158,10 +168,13 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
         with:
           languages: python
           build-mode: none
+          queries: security-extended
       - uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea
 
   ci-gate:
