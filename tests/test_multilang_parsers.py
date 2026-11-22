@@ -70,3 +70,17 @@ const dynamic = import("dynamic-module");
         "common-module",
         "dynamic-module",
     }
+
+
+
+def test_php_parser_extracts_namespace_use_imports():
+    adapter = TreeSitterAdapter("php")
+    result = adapter.parse(
+        "Controller.php",
+        "<?php\\nuse App\\\\Services\\\\AuthService;\\nclass Controller {}\\n",
+    )
+
+    assert result.parse_errors == ()
+    assert [dep.target_module for dep in result.dependencies] == [
+        "App\\\\Services\\\\AuthService"
+    ]
