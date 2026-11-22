@@ -58,7 +58,8 @@ docker compose up --build     # dashboard on http://localhost:8780
 ```bash
 # 1. launch the observatory — it prints a URL containing a one-time token
 python dashboard_app.py
-#   Open  http://127.0.0.1:8780/?token=...
+#   Open  http://127.0.0.1:8780/
+#   Access token: <printed separately in the terminal>
 
 # 2. add a repository from the UI, or use the CLI:
 astra index F:\path\to\repo
@@ -85,10 +86,11 @@ returns the diff, the risk, and why anything was rejected. An edit whose
 `old_text` is not verbatim in the file it names is refused rather than applied,
 and `astra apply` refuses a proposal whose file changed since the review.
 
-The dashboard mints an access token at startup and requires it on every API
-call, so a page open in the same browser cannot drive it. Pin the token with
-`ASTRA_TOKEN=...`, or set `ASTRA_DISABLE_AUTH=1` on a trusted single-user
-machine to opt out.
+The dashboard mints an access token at startup and requires a bearer header on
+every API call. The HTML shell is public but never contains the token; paste the
+token printed separately in the terminal when the dashboard prompts. It is kept
+in the current tab's session storage and is never placed in a URL. Pin a stable
+token with `ASTRA_TOKEN=...`; authentication cannot be disabled.
 
 Repository data lives in `~/.astra` (override with the `ASTRA_HOME` environment
 variable). Each repo gets its own deterministic graph database.
@@ -141,21 +143,20 @@ The codebase is type-clean under mypy (0 errors over 96 files) and lint-clean
 under a project-owned ruff ruleset, with CI running both on Python 3.11 and 3.12
 across Linux, Windows and macOS. Measured on this repository:
 
-| | |
-|---|---|
-These performance figures are historical local measurements, not CI gates.
-They must be re-established with the benchmark suite before being treated as
-current performance guarantees.
+CI runs on Linux, Windows and macOS with Python 3.11 and 3.12. The required
+workflow gate includes tests, lint, type checking, wheel build/install smoke
+tests, Docker smoke tests, CodeQL, dependency audit, and a minimum 90% line
+coverage threshold for the `astra/` package.
 
 ### Known limitations
 
 Deliberate, not accidental:
 
 - **Single-user access control.** The dashboard is protected by a per-process
-  token, not by accounts or roles: anyone who can read the URL can use it, and
-  the server binds all interfaces so it is reachable from other machines on the
-  network. Set `ASTRA_TOKEN` to pin the token; there is no TLS, so do not expose
-  it beyond a trusted network.
+  bearer token, not by accounts or roles. The token is printed to the server
+  terminal and is not embedded in the URL or HTML. The server binds all
+  interfaces when run directly; there is no TLS, so do not expose it beyond a
+  trusted network.
 - **No provider is wired in.** The agent loop takes the model's reply and
   reviews it; it never calls one. Running a model is the caller's, because a
   bundled provider means an API key, a network dependency and a bill.
