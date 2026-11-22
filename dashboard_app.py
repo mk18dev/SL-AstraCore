@@ -769,7 +769,7 @@ async def agent_run(payload: Optional[dict] = None):
         raise HTTPException(status_code=400, detail="query must contain 1–4000 characters")
     candidate = str(Path(str(payload.get("path", ""))).resolve())
     root = _confine_to_registered_repo(candidate)
-    record = _get_or_create(root)
+    _get_or_create(root)
 
     try:
         config = _provider_store().load()
@@ -778,7 +778,7 @@ async def agent_run(payload: Optional[dict] = None):
         try:
             budget = int(budget)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="max_tokens must be an integer")
+            raise HTTPException(status_code=400, detail="max_tokens must be an integer") from None
         if not 256 <= budget <= 32000:
             raise HTTPException(status_code=400, detail="max_tokens must be between 256 and 32000")
 
