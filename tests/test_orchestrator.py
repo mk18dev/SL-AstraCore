@@ -252,3 +252,55 @@ def test_astraignore_and_shared_wildcard_rules_skip_files(tmp_path):
     assert not any("generated" in name for name in names)
     assert not any("cache.egg-info" in name for name in names)
     assert not any(name.endswith("private.secret") for name in names)
+
+
+
+def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("from b import target\\n", encoding="utf-8")
+    (repo / "b.py").write_text("def target():\\n    return 1\\n", encoding="utf-8")
+    (repo / "c.py").write_text("def target():\\n    return 2\\n", encoding="utf-8")
+
+    runtime = RuntimeOrchestrator(
+        metadata_db_path=str(tmp_path / "state" / "runtime.db")
+    )
+    runtime.register_repo(str(repo))
+    first_record = runtime.index_repo(str(repo))
+    runtime.query_context(
+        root_path=str(repo),
+        seed_node_ids=[],
+        query_intent="trace the target import",
+        max_tokens=1200,
+    )
+    first_signature, first_graph = runtime._graph_cache[str(repo.resolve())]
+    assert any(
+        edge.type.name == "IMPORTS" and edge.to_node.endswith("/b.py")
+        for edge in first_graph.edges
+    )
+
+    (repo / "a.py").write_text("from c import target\\n", encoding="utf-8")
+    second_record = runtime.index_repo(str(repo))
+
+    assert second_record.node_count == first_record.node_count
+    assert second_record.edge_count == first_record.edge_count
+    assert second_record.last_indexed != first_record.last_indexed
+
+    runtime.query_context(
+        root_path=str(repo),
+        seed_node_ids=[],
+        query_intent="trace the target import",
+        max_tokens=1200,
+    )
+    second_signature, second_graph = runtime._graph_cache[str(repo.resolve())]
+
+    assert second_signature != first_signature
+    assert second_graph is not first_graph
+    assert any(
+        edge.type.name == "IMPORTS" and edge.to_node.endswith("/c.py")
+        for edge in second_graph.edges
+    )
+    assert not any(
+        edge.type.name == "IMPORTS" and edge.to_node.endswith("/b.py")
+        for edge in second_graph.edges
+    )
