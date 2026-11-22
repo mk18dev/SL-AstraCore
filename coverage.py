@@ -1,17 +1,17 @@
-"""Measure what the suite exercises, with sys.settrace.
+"""Measure test coverage with a small standard-library line tracer.
 
-trace.Trace's localtrace hook is a no-op on this interpreter, so the
-measurement uses sys.settrace directly and filters by filename. No
-third-party dependency — coverage is not installable here.
+The report is diagnostic rather than a substitute for branch-aware coverage.
+It intentionally has no third-party runtime dependency.
 """
 
 import ast
 import json
 import sys
+import threading
 from pathlib import Path
 
-ROOT = Path("F:" + chr(92) + "SL-AstraCore")
-PACKAGE = str(ROOT / "astra")
+ROOT = Path(__file__).resolve().parent
+PACKAGE = (ROOT / "astra").resolve()
 
 
 def executable_lines(path: Path) -> set:
@@ -28,13 +28,15 @@ def executable_lines(path: Path) -> set:
 
 
 class Collector:
-    def __init__(self, package):
-        self.package = package
-        self.hits = {}
+    def __init__(self, package: Path):
+        self.package = package.resolve()
+        self.hits: dict[Path, set[int]] = {}
 
     def tracer(self, frame, event, arg):
-        filename = frame.f_code.co_filename
-        if not filename.startswith(self.package):
+        try:
+            filename = Path(frame.f_code.co_filename).resolve()
+            filename.relative_to(self.package)
+        except (OSError, ValueError):
             return None
         if event == "line":
             self.hits.setdefault(filename, set()).add(frame.f_lineno)
@@ -46,11 +48,17 @@ def measure():
 
     collector = Collector(PACKAGE)
     previous = sys.gettrace()
+    previous_thread = threading.gettrace()
+    threading.settrace(collector.tracer)
     sys.settrace(collector.tracer)
     try:
-        pytest.main([str(ROOT / "tests"), "-q", "--tb=no", "-p", "no:cacheprovider"])
+        exit_code = pytest.main([str(ROOT / "tests"), "-q", "--tb=no", "-p", "no:cacheprovider"])
     finally:
         sys.settrace(previous)
+        threading.settrace(previous_thread)
+
+    if int(exit_code) != 0:
+        raise SystemExit(int(exit_code))
 
     per_file = {}
     total_exec = total_hit = 0
@@ -58,7 +66,7 @@ def measure():
         if "__pycache__" in path.parts:
             continue
         executable = executable_lines(path)
-        hit = collector.hits.get(str(path), set()) & executable
+        hit = collector.hits.get(path.resolve(), set()) & executable
         per_file[str(path.relative_to(ROOT))] = {
             "executable": len(executable),
             "covered": len(hit),
