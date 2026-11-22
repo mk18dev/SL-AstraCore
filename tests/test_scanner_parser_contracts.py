@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import builtins
-from types import SimpleNamespace
 import sys
+from types import SimpleNamespace
 
 from astra.models.file_node import FileCategory
 from astra.parser import registry as registry_module
@@ -186,12 +186,12 @@ def test_js_ts_adapter_falls_back_when_tsx_grammar_is_unavailable(monkeypatch):
 
 
 def test_js_ts_adapter_handles_grammar_probe_failure(monkeypatch):
+    def fail_get_parser(language):
+        raise RuntimeError("missing")
+
     monkeypatch.setitem(
         sys.modules,
         "tree_sitter_language_pack",
-        SimpleNamespace(
-            SupportedLanguage=str,
-            get_parser=lambda language: (_ for _ in ()).throw(RuntimeError("missing")),
-        ),
+        SimpleNamespace(SupportedLanguage=str, get_parser=fail_get_parser),
     )
     assert not _JSTSTreeSitterAdapter._has_parser("javascript")
