@@ -121,7 +121,7 @@ def _import_target(node, source: str) -> str:
     Java/C#/Rust/C put it after a keyword. Each is unwrapped here so every
     language yields the same thing — a bare module name.
     """
-    for child in node.named_children:
+    for child in _walk(node):
         if child.type == "string_fragment":
             return source[child.start_byte:child.end_byte]
         if child.type in ("interpreted_string_literal", "string_literal", "raw_string_literal"):
