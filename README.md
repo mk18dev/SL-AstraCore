@@ -33,7 +33,7 @@ every import a constellation line, patterns and conflicts are marked in the log.
 - **Persistent knowledge graph** — DuckDB (default) or SQLite, incremental indexing with atomic batch upserts
 - **Graph enrichment** — design-pattern detection (`repository`, `factory`, …), naming-convention analysis and cross-module naming-conflict detection, all wired into the index pipeline
 - **Context engine** — intent analysis, keyword/seed ranking, BFS dependency expansion, hard token budgets
-- **Agent loop** — packs the repository, reviews a model's proposed edit against the real files, and refuses anything unanchored, unparsable or unparsed; applying is a separate, explicit step
+- **Model provider** — configure an OpenAI-compatible chat endpoint from the dashboard (hosted APIs or local Ollama); API keys stay server-side and are never returned by the settings API\n- **Agent loop** — builds repository context, calls the configured model, reviews proposed edits against real files, and refuses unanchored or unparsable changes; applying is a separate, explicit step
 - **Live dashboard** — SSE event stream, interactive canvas star chart, file explorer, patch review, execution monitor, telemetry sparklines
 
 ## Install
