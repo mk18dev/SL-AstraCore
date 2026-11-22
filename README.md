@@ -57,7 +57,7 @@ docker compose up --build     # dashboard on http://localhost:8780
 ## Quick start
 
 ```bash
-# 1. launch the observatory — it prints a URL containing a one-time token
+# 1. launch the observatory — it prints a local URL and bearer token separately
 python dashboard_app.py
 #   Open  http://127.0.0.1:8780/
 #   Access token: <printed separately in the terminal>
