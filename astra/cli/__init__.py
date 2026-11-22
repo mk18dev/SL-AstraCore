@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -180,6 +181,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
     if args.command == "serve":
+        from dashboard_app import _ACCESS_TOKEN
+
+        print("\nSL-AstraCore Observatory")
+        print(f"Open: http://127.0.0.1:{args.port}/")
+        if os.environ.get("ASTRA_TOKEN"):
+            print("Access token: loaded from ASTRA_TOKEN")
+        else:
+            print(f"Access token: {_ACCESS_TOKEN}")
+        print("(authentication is always enabled)\n")
         uvicorn.run("dashboard_app:app", host="127.0.0.1", port=args.port)
         return 0
 
