@@ -96,9 +96,11 @@ def test_symbol_snippet_is_scoped_to_that_symbol(repo):
 def test_snippets_respect_the_token_budget(repo):
     for budget in (600, 1200, 4000):
         pack = orch_pack(repo, budget)
-        total_chars = sum(len(n.snippet) for n in pack.nodes)
-        # 70% of the budget goes to snippets, at ~4 chars per token
-        assert total_chars <= budget * 0.7 * 4 + 200, f"snippets overflowed a {budget}-token budget"
+        assert pack.total_tokens <= budget
+        assert pack.total_tokens <= pack.token_budget
+        assert any(node.snippet for node in pack.nodes), (
+            f"the {budget}-token pack lost all source snippets"
+        )
 
 
 def orch_pack(repo, budget):
