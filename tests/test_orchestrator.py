@@ -313,7 +313,7 @@ def test_seeded_context_pack_includes_source_and_obeys_budget(tmp_path):
     repo.mkdir()
     source = repo / "main.py"
     source.write_text(
-        "def target():\\n    return 42\\n\\n" + "\\n".join(
+        "def target():\n    return 42\n\n" + "\n".join(
             f"VALUE_{index} = {index}" for index in range(100)
         ),
         encoding="utf-8",
