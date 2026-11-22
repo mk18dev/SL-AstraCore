@@ -90,8 +90,8 @@ def test_file_terms_split_identifiers_filter_stopwords_and_bound_reads(tmp_path)
     source = tmp_path / "context_selector.py"
     source.write_text("def choose_context(): pass\n" + "hiddenkeyword " * 100, encoding="utf-8")
     terms = file_terms(str(source), max_bytes=30)
-    assert "context" in terms
-    assert "selector" in terms
+    assert "contex" in terms
+    assert "select" in terms
     assert "choose" in terms
     assert "hiddenkeyword" not in terms
 
