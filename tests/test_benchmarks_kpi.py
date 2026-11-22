@@ -65,8 +65,9 @@ def test_mutator_batch_throughput():
         mutator.apply_batch(nodes_to_upsert=nodes, edges_to_upsert=edges)
         elapsed = time.perf_counter() - t0
 
+        print(f"\n  [kpi] batch write 100 nodes + 100 edges {elapsed:.3f}s")
         if not STRICT_KPI:
-            print(f"\n  [kpi] batch write {elapsed:.3f}s (gate skipped; set STRICT_KPI=1 to enforce)")
+            print("  [kpi] strict timing gate skipped for this runner")
         assert elapsed < KPI["mutator_batch_100_nodes"] or not STRICT_KPI, (
             f"Batch write took {elapsed:.3f}s, threshold {KPI['mutator_batch_100_nodes']}s"
         )
