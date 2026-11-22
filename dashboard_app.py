@@ -57,12 +57,11 @@ def _emit(event_type: str, payload: dict, source: str = "dashboard") -> None:
 # Set ASTRA_TOKEN to pin it; otherwise one is generated per process and printed
 # to the console. ASTRA_DISABLE_AUTH=1 opts out for a trusted single-user setup.
 _ALLOWED_ORIGIN_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
-_PUBLIC_PATHS = {"/manifest.webmanifest", "/favicon.ico"}
+_PUBLIC_PATHS = {"/", "/manifest.webmanifest", "/favicon.ico"}
 
 
 def _resolve_token() -> tuple[str, bool]:
-    if os.environ.get("ASTRA_DISABLE_AUTH") == "1":
-        return "", False
+    """Authentication is always enabled; ASTRA_DISABLE_AUTH is intentionally ignored."""
     pinned = os.environ.get("ASTRA_TOKEN", "").strip()
     if pinned:
         return pinned, True
@@ -76,7 +75,7 @@ def _bearer_of(request: Request) -> str:
     header = request.headers.get("authorization", "")
     if header.lower().startswith("bearer "):
         return header[7:].strip()
-    return request.query_params.get("token", "")
+    return ""
 
 
 @app.middleware("http")
@@ -84,12 +83,12 @@ async def _guard_requests(request: Request, call_next):
     from fastapi.responses import JSONResponse
 
     path = request.url.path
-    needs_token = _AUTH_REQUIRED and path not in _PUBLIC_PATHS and not path.startswith("/static/")
+    needs_token = path not in _PUBLIC_PATHS and not path.startswith("/static/")
     if needs_token and not secrets.compare_digest(_bearer_of(request), _ACCESS_TOKEN):
-        # The first navigation cannot carry a header, so the shell is returned
-        # with the token in the body, which the SPA reads on load.
-        body = {"detail": "token required", "token": _ACCESS_TOKEN} if path == "/" else {"detail": "invalid or missing token"}
-        return JSONResponse(status_code=401, content=body)
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "invalid or missing bearer token"},
+        )
 
     origin = request.headers.get("origin")
     if origin:
@@ -772,10 +771,11 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("PORT", "8780"))
-    if _AUTH_REQUIRED:
-        # ASCII only: the Windows console defaults to cp1252 and would crash on
-        # a box-drawing arrow or any other non-Latin glyph.
-        print("\n  SL-AstraCore Observatory")
-        print(f"  Open  http://127.0.0.1:{port}/?token={_ACCESS_TOKEN}\n")
-        print("  (set ASTRA_TOKEN to pin it, or ASTRA_DISABLE_AUTH=1 to opt out)\n")
+    print("\n  SL-AstraCore Observatory")
+    print(f"  Open  http://127.0.0.1:{port}/")
+    if not os.environ.get("ASTRA_TOKEN"):
+        print(f"  Access token: {_ACCESS_TOKEN}")
+    else:
+        print("  Access token: loaded from ASTRA_TOKEN")
+    print("  (authentication is always enabled)\n")
     uvicorn.run(app, host="0.0.0.0", port=port)
