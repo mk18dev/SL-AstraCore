@@ -678,6 +678,12 @@ class RuntimeOrchestrator:
         else:
             frequency, files_indexed = None, None
 
+        from astra.context.token_budget import TokenBudget
+
+        effective_budget = (
+            max_tokens if max_tokens and max_tokens > 0 else _DEFAULT_TOKEN_BUDGET
+        )
+        engine_budget = max(1, int(effective_budget * 0.2))
         engine = TaskContextEngine(
             kg, document_frequency=frequency, files_indexed=files_indexed
         )
@@ -687,9 +693,60 @@ class RuntimeOrchestrator:
             frequency,
             files_indexed,
         )
-        if max_tokens and max_tokens > 0:
-            engine._token_budget.set_budget(max_tokens)
+        engine._token_budget.set_budget(engine_budget)
         _analysis, _pack, _deps, _risks = engine.build_pack(query_intent)
+
+        def _truncate_to_tokens(text: str, token_limit: int) -> str:
+            if token_limit <= 0:
+                return ""
+            if TokenBudget.estimate(text) <= token_limit:
+                return text
+            low, high = 0, len(text)
+            while low < high:
+                middle = (low + high + 1) // 2
+                if TokenBudget.estimate(text[:middle]) <= token_limit:
+                    low = middle
+                else:
+                    high = middle - 1
+            return text[:low].rstrip()
+
+        def _fit_text_items(items, token_limit: int) -> tuple[str, ...]:
+            selected: list[str] = []
+            used = 0
+            for item in items:
+                value = str(item)
+                cost = TokenBudget.estimate(value)
+                if used + cost <= token_limit:
+                    selected.append(value)
+                    used += cost
+            return tuple(selected)
+
+        # Reserve explicit space for the task summary and metadata before
+        # allocating the remainder to source snippets.
+        summary_each = max(1, int(effective_budget * 0.05))
+        task_summary = _truncate_to_tokens(_analysis.task, summary_each)
+        required_files = _fit_text_items(_pack.required_files, summary_each)
+        dependency_summary = _fit_text_items(
+            _pack.critical_dependencies[:20], summary_each
+        )
+        risk_items = [
+            getattr(risk, "node_id", str(risk))
+            for risk in _risks.medium_risk_nodes[:10]
+        ]
+        hidden_risks = _fit_text_items(risk_items, summary_each)
+        summary_tokens = sum(
+            TokenBudget.estimate(value)
+            for value in (
+                task_summary,
+                "\n".join(required_files),
+                "\n".join(dependency_summary),
+                "\n".join(hidden_risks),
+            )
+        )
+        snippet_allowance = max(
+            0,
+            effective_budget - _pack.token_estimate - summary_tokens,
+        )
 
         def _file_path_of(node: dict) -> str:
             explicit = node.get("file_path") or ""
@@ -698,13 +755,10 @@ class RuntimeOrchestrator:
             node_id = node.get("id", "")
             return node_id.removeprefix("file:") if node_id.startswith("file:") else ""
 
-        def _snippet_for(node: dict, char_limit: int = 0) -> str:
-            """Read the real source this node points at.
-
-            A symbol node carries line_start/line_end, so an agent gets the function
-            body; a file node gets its head. This is what makes a context pack
-            usable by an agent instead of a bare list of filenames.
-            """
+        def _snippet_for(node: dict, token_limit: int = 0) -> str:
+            """Read a repository-confined source excerpt and fit the token budget."""
+            if token_limit <= 0:
+                return ""
             node_id = node.get("id", "")
             graph_node = kg.node_index.get(node_id)
             props = graph_node.properties if graph_node is not None else {}
@@ -717,52 +771,49 @@ class RuntimeOrchestrator:
             if not source_file.is_absolute():
                 source_file = Path(record.root_path) / path
             try:
-                lines = source_file.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
+                root = Path(record.root_path).resolve()
+                source_file = source_file.resolve()
+                source_file.relative_to(root)
+                lines = source_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
+            except (OSError, ValueError):
                 return ""
             if not lines:
                 return ""
-            start = int(props.get("line_start") or 0)
-            if start > 0:
-                end = min(int(props.get("line_end") or start), start + _SNIPPET_MAX_LINES - 1)
-                body = lines[start - 1:end]
-                header = f"# {node.get('label', source_file.name)} — {source_file.name}:{start}-{end}"
-                text = "\n".join([header, *body])
+            start_line = int(props.get("line_start") or 0)
+            if start_line > 0:
+                end_line = min(
+                    int(props.get("line_end") or start_line),
+                    start_line + _SNIPPET_MAX_LINES - 1,
+                )
+                body = lines[start_line - 1:end_line]
+                header = (
+                    f"# {node.get('label', source_file.name)} — "
+                    f"{source_file.name}:{start_line}-{end_line}"
+                )
+                excerpt = "\n".join([header, *body])
             else:
-                text = "\n".join(lines[:_SNIPPET_MAX_LINES])
-            if char_limit and len(text) > char_limit:
-                text = text[:char_limit].rsplit("\n", 1)[0] + "\n# … truncated to fit token budget"
-            return text
+                excerpt = "\n".join(lines[:_SNIPPET_MAX_LINES])
+            return _truncate_to_tokens(excerpt, token_limit)
 
         def _ir_node_type(node_id: str) -> NodeType:
             legacy = node_type_from_ir(kg.node_index[node_id].node_type)
             return NodeType[legacy.name]
 
-        # 2.3 Snippets must fit the caller's budget. Each snippet is estimated
-        # (~4 chars/token) and truncated to the remaining allowance, so a pack
-        # with real code can never exceed the token budget it reports.
-        effective_budget = max_tokens if max_tokens and max_tokens > 0 else _DEFAULT_TOKEN_BUDGET
-        snippet_allowance = int(effective_budget * 0.7)
-        snippet_chars = max(0, snippet_allowance * 4)
-        spent = 0
+        spent_tokens = 0
         nodes_with_snippets: list[ContextNodeRef] = []
-        # Spend the snippet budget on the best matches first. relevant_nodes
-        # arrives in set order, so the budget was going to whichever node
-        # happened to be iterated first and the strongest matches came back
-        # with an empty snippet.
         ordered = sorted(
             (entry for entry in _pack.relevant_nodes if isinstance(entry, dict)),
             key=lambda entry: float(entry.get("relevance", 0.0)),
             reverse=True,
         )
         for entry in ordered:
-            remaining = snippet_chars - spent
-            # Cap per node. Without it the first few matches each took the whole
-            # remaining allowance and the budget ran out at rank 19, so a file
-            # ranked 20th arrived in the pack with no source at all.
-            per_node = min(remaining, _SNIPPET_PER_NODE_CHARS)
-            snippet = _snippet_for(entry, char_limit=per_node) if per_node > 200 else ""
-            spent += len(snippet)
+            remaining = snippet_allowance - spent_tokens
+            per_node = min(remaining, _SNIPPET_PER_NODE_TOKENS)
+            snippet = _snippet_for(entry, token_limit=per_node) if per_node > 4 else ""
+            if snippet:
+                spent_tokens += TokenBudget.estimate(snippet)
             nodes_with_snippets.append(
                 ContextNodeRef(
                     node_id=entry["id"],
@@ -778,7 +829,7 @@ class RuntimeOrchestrator:
                 )
             )
         nodes_ref = tuple(nodes_with_snippets)
-        selected_ids = {nr.node_id for nr in nodes_ref}
+        selected_ids = {node.node_id for node in nodes_ref}
         edges_ref = tuple(
             ContextEdgeRef(
                 from_node=critical["from"],
@@ -789,18 +840,42 @@ class RuntimeOrchestrator:
             if critical["from"] in selected_ids and critical["to"] in selected_ids
         )
 
+        total_tokens = _pack.token_estimate + summary_tokens + spent_tokens
+        if total_tokens > effective_budget:
+            # Defensive final clamp: remove the lowest-ranked snippets first.
+            clamped_nodes = list(nodes_ref)
+            for index in range(len(clamped_nodes) - 1, -1, -1):
+                node = clamped_nodes[index]
+                if not node.snippet or total_tokens <= effective_budget:
+                    continue
+                total_tokens -= TokenBudget.estimate(node.snippet)
+                clamped_nodes[index] = ContextNodeRef(
+                    node_id=node.node_id,
+                    node_type=node.node_type,
+                    name=node.name,
+                    file_path=node.file_path,
+                    snippet="",
+                    relevance_score=node.relevance_score,
+                )
+            nodes_ref = tuple(clamped_nodes)
+            total_tokens = min(total_tokens, effective_budget)
+
         return IRContextPack(
-            task_summary=_analysis.task,
+            task_summary=task_summary,
             task_type=_analysis.task_type,
             query_intent=query_intent,
             nodes=nodes_ref,
             edges=edges_ref,
-            required_files=tuple(_pack.required_files),
-            dependency_summary=tuple(str(d) for d in _pack.critical_dependencies[:20]),
-            hidden_risks=tuple(_risks.medium_risk_nodes[:10]),
-            total_tokens=_pack.token_estimate,
+            required_files=required_files,
+            dependency_summary=dependency_summary,
+            hidden_risks=hidden_risks,
+            total_tokens=total_tokens,
             token_budget=effective_budget,
             confidence=_analysis.confidence,
+            metadata={
+                "token_estimator": "conservative-utf8-heuristic",
+                "token_budget_enforced": True,
+            },
         )
 
     def get_repo(self, root_path: str) -> Optional[RepoRecord]:
@@ -979,9 +1054,8 @@ class RuntimeOrchestrator:
 
 
 _SNIPPET_MAX_LINES = 40
-# ~600 tokens of source per node: enough for a function body, small enough
-# that 30 nodes still fit a 4k budget.
-_SNIPPET_PER_NODE_CHARS = 2400
+# Keep each source excerpt bounded so high-ranked nodes share the budget.
+_SNIPPET_PER_NODE_TOKENS = 600
 _DEFAULT_TOKEN_BUDGET = 32000
 _SYMBOL_KIND_TO_NODE_TYPE = {
     SymbolKind.FUNCTION: NodeType.FUNCTION,
