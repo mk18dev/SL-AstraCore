@@ -163,7 +163,7 @@ def test_config_store_rejects_corrupt_or_unsupported_files(tmp_path, raw):
         ProviderConfigStore(path).load()
 
 
-@pytest.mark.parametrize("bad_key", ["bad\\nkey", "bad\\rkey", 123, ["not", "a", "key"]])
+@pytest.mark.parametrize("bad_key", ["bad\nkey", "bad\rkey", 123, ["not", "a", "key"]])
 def test_config_store_rejects_invalid_api_keys(tmp_path, bad_key):
     store = ProviderConfigStore(tmp_path / "providers.json")
     with pytest.raises(ProviderConfigurationError):
