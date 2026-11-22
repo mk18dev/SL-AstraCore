@@ -82,7 +82,7 @@ if __name__ == "__main__":
     assert "parse" in _tokens("def parseFile()")
     assert "parse" in _tokens("def parse_file()")
     # the filename is evidence even when the body never says the word
-    assert "selector" in file_terms("context_selector.py")
+    assert "select" in file_terms("context_selector.py")
     # An unreadable file still contributes its own name: a module called
     # budget.py must be findable by "budget" even when its body cannot be read.
     assert "exist" in file_terms("does-not-exist.py")
