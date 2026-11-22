@@ -20,11 +20,15 @@ def executable_lines(path: Path) -> set:
     tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
     lines = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.stmt):
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
-                if isinstance(node.value.value, str):
-                    continue  # a docstring, not code
-            lines.add(node.lineno)
+        if not isinstance(node, ast.stmt):
+            continue
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            continue  # a docstring, not code
+        lines.add(node.lineno)
     return lines
 
 
@@ -34,7 +38,7 @@ class Collector:
         self.hits: dict[Path, set[int]] = {}
         self._path_cache: dict[str, Path | None] = {}
 
-    def tracer(self, frame, event, arg):
+    def tracer(self, frame, event, _arg):
         raw_filename = frame.f_code.co_filename
         if raw_filename not in self._path_cache:
             try:
