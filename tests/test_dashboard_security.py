@@ -115,3 +115,14 @@ def test_assets_stay_public():
     plain = TestClient(da.app, raise_server_exceptions=False)
     assert plain.get("/manifest.webmanifest").status_code == 200
     assert plain.get("/favicon.ico").status_code == 200
+
+
+
+def test_server_binds_to_loopback_by_default(monkeypatch):
+    monkeypatch.delenv("ASTRA_HOST", raising=False)
+    assert da._server_host() == "127.0.0.1"
+
+
+def test_server_network_binding_requires_explicit_configuration(monkeypatch):
+    monkeypatch.setenv("ASTRA_HOST", "0.0.0.0")
+    assert da._server_host() == "0.0.0.0"
