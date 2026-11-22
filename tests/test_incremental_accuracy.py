@@ -6,6 +6,8 @@ that dependency indefinitely, which then skewed impact analysis and every
 context pack built from it.
 """
 
+import os
+
 import pytest
 
 from astra.runtime.orchestrator import RuntimeOrchestrator
@@ -80,3 +82,43 @@ def test_deleting_a_file_cascades_to_its_edges(indexed):
     orch.index_repo(str(repo))
     edges = _edges(record.db_path)
     assert not any(to == "b.py" for _f, to, _t in edges), f"edges to a deleted file survived: {edges}"
+
+
+
+def test_incremental_manifest_survives_runtime_restart(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo / "b.py").write_text("def helper():\n    return 2\n", encoding="utf-8")
+    metadata_db = tmp_path / "state" / "runtime.db"
+
+    first_runtime = RuntimeOrchestrator(metadata_db_path=str(metadata_db))
+    first_runtime.register_repo(str(repo))
+    first_record = first_runtime.index_repo(str(repo))
+    assert first_record.status.value == "active"
+
+    restarted_runtime = RuntimeOrchestrator(metadata_db_path=str(metadata_db))
+    restarted_runtime.register_repo(str(repo))
+    restarted_record = restarted_runtime.index_repo(str(repo))
+
+    assert restarted_record.status.value == "active"
+    assert "incremental: 0 of 2 files changed" in restarted_record.warnings
+
+
+def test_incremental_hash_detects_same_size_edit_with_preserved_mtime(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / "main.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    runtime = RuntimeOrchestrator(metadata_db_path=str(tmp_path / "state" / "runtime.db"))
+    runtime.register_repo(str(repo))
+    first_record = runtime.index_repo(str(repo))
+    assert first_record.status.value == "active"
+
+    original_stat = source.stat()
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+    os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+    updated_record = runtime.index_repo(str(repo))
+    assert updated_record.status.value == "active"
+    assert "incremental: 1 of 1 files changed" in updated_record.warnings
