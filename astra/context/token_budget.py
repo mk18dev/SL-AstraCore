@@ -2,7 +2,8 @@ from astra.core.logger import get_logger
 
 logger = get_logger("astra.context.token_budget")
 
-AVG_CHARS_PER_TOKEN = 4
+AVG_CHARS_PER_TOKEN = 3
+AVG_BYTES_PER_NON_ASCII_TOKEN = 2
 MAX_BUDGET = 32000
 
 
@@ -25,7 +26,17 @@ class TokenBudget:
 
     @staticmethod
     def estimate(text):
-        return max(1, len(text) // AVG_CHARS_PER_TOKEN)
+        if not text:
+            return 1
+        ascii_chars = sum(1 for char in text if ord(char) < 128)
+        non_ascii_bytes = len(text.encode("utf-8")) - ascii_chars
+        ascii_tokens = (
+            ascii_chars + AVG_CHARS_PER_TOKEN - 1
+        ) // AVG_CHARS_PER_TOKEN
+        non_ascii_tokens = (
+            non_ascii_bytes + AVG_BYTES_PER_NON_ASCII_TOKEN - 1
+        ) // AVG_BYTES_PER_NON_ASCII_TOKEN
+        return max(1, ascii_tokens + non_ascii_tokens)
 
     def reserve(self, _node_id, text, force=False):
         tokens = self.estimate(text)
