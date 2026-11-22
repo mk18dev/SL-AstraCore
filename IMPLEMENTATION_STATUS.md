@@ -1,92 +1,98 @@
-# SL-AstraCore implementation status
+# SL-AstraCore — implementation status
 
-Measured 2026-10-01. Every number below was re-measured against this tree.
+Last verified code commit: `ec7d3b1c7c9835d789037787d07348209d462b0b`
+Verification date: 2026-11-23
 
-## What it is
+This file replaces the October 1 status snapshot. Historical performance
+numbers from that snapshot are not treated as current measurements.
 
-A local tool that reads one repository, turns it into a graph in DuckDB, and
-answers a plain-language question by returning a ranked bundle of real source.
-A FastAPI dashboard shows the graph and the answer; `astra` does the same from
-a terminal; `astra propose` turns a model's reply into a reviewed edit.
+## What the project is
 
-```
-RepositoryScanner -> ParserRegistry -> import_resolver -> DuckDB -> context stack -> dashboard / CLI
-                                                                        ↓
-                                                        astra/agent: review -> apply
-```
+SL-AstraCore is a local-first Repository Intelligence Engine. Its core job is
+to scan a repository, parse supported languages, build a persistent
+intermediate representation and dependency graph, then retrieve ranked,
+source-grounded context for a query.
 
-95 modules, 9,394 lines under `astra/`, plus `dashboard_app.py`.
+The analyzer works without an API key. A model provider is an optional adapter
+for the separate AI review workflow; it is not required for indexing or
+context retrieval.
 
-## Measured
+## Verified CI baseline
 
-| | |
+GitHub Actions run [#45082074980](https://github.com/Mk18dev/SL-AstraCore/actions/runs/45082074980)
+completed successfully on the code commit above.
+
+| Gate | Verified result |
 |---|---|
-| index this repository (172 files) | 1.4s (120 files/s) |
-| re-index, nothing changed | 0.36s |
-| index 3,000 files | 7.5s (402 files/s) |
-| query | 62ms median |
-| ranking accuracy, 12 real questions | 8/12 first place, 12/12 top three |
-| pack carrying source, 4k budget | 8 of 13 nodes |
-| source per 8x budget | 8.0x |
-| test coverage | 90% of statement lines, no file at zero |
+| Tests | 498 passed on Ubuntu / Python 3.11 |
+| OS and Python matrix | Ubuntu, macOS, Windows × Python 3.11 and 3.12 — 6/6 green |
+| Ruff | Passed |
+| mypy | Passed |
+| Line coverage for astra/ | 95.3% — 5,176 / 5,434 executable lines |
+| Wheel | Built and installed outside the source tree on the matrix |
+| Docker | Build and smoke test passed |
+| CodeQL | Passed |
+| Pinned dependency audit | Passed |
+| Aggregate CI required gate | Passed |
 
-| Gate | |
-|---|---|
-| `pytest tests/ -q` | 418 passed, 1 skipped |
-| `ruff check astra/ tests/ dashboard_app.py` | clean |
-| `mypy astra/ dashboard_app.py` | clean, 96 files |
-| Linux + Windows, Python 3.11 and 3.12 | green |
+Coverage is measured by the repository's standard-library line tracer. It is
+line coverage, not branch coverage or model-token accuracy. The enforced
+minimum is 95.0%; the last measured result was 95.3%.
 
-## The agent loop
+## Implemented capabilities
 
-`astra/agent` connects the pack builder, the AST differ and the risk scorer,
-which all existed but were wired to nothing.
+- Unified repository ingestion and filesystem scanning, including ignore rules,
+  deterministic file identities, incremental metadata, and persistent
+  checkpoint/manifest state.
+- Parser registry and language adapters feeding the repository IR.
+- Import/dependency resolution that preserves ambiguity rather than inventing
+  a unique target when multiple candidates remain.
+- Persistent graph/storage backends and source-grounded context retrieval.
+- Ranked context packs with a bounded estimated-token budget.
+- Authenticated local dashboard/API, explicit repository confinement, and
+  bearer-authenticated runtime streaming.
+- Dashboard provider settings for OpenAI-compatible chat-completions endpoints.
+  The API key is never returned by the settings API.
+- AI review builds context, calls the configured model, and reviews proposed
+  edits against repository files. Review does not write files; apply remains a
+  separate explicit operation.
+- Wheel build/install checks and Docker smoke testing in CI.
 
-    question -> pack -> model -> proposed edit -> parsed diff -> risk
-             -> the caller decides whether to write
+## Security and deployment posture
 
-The model is a callable the caller supplies, so nothing here needs a provider
-account and every test runs offline. The model is never given a way to write.
-An edit is refused before it can become a suggestion when its `old_text` is
-not verbatim in the file it names, when the result does not parse, or when it
-changes nothing. Applying is a separate command that refuses a proposal whose
-file changed since the review.
+- Direct dashboard launches bind to `127.0.0.1` by default. Network binding
+  requires an explicit `ASTRA_HOST` setting.
+- Docker binds inside the container to `0.0.0.0`; publish only behind a trusted
+  TLS-terminating reverse proxy and firewall.
+- Provider keys are stored in `$ASTRA_HOME/providers.json` (default
+  `~/.astra/providers.json`). POSIX mode is set to `0600`; the secret is
+  plaintext at rest. Windows operators must protect the directory with ACLs.
+- The dashboard is single-user bearer-token auth, not multi-user RBAC.
+- Branch protection is not confirmed active. The required settings are
+  documented in [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md), but the
+  connected GitHub integration exposes read operations only for those
+  administration settings.
 
-Reachable as `POST /api/agent/propose`, `astra propose --emit`, and
-`astra apply`.
+## Known limitations — not represented as completed
 
-## Deliberate limitations
+1. Provider protocol support is OpenAI-compatible chat completions only.
+   Native Anthropic/Gemini protocols and streaming model responses are not
+   implemented.
+2. The context budget uses a conservative UTF-8 heuristic, not a
+   model-specific tokenizer. The bound is enforced against that estimator; it
+   is not a guarantee of exact provider token counts.
+3. API keys are permission-restricted but not encrypted at rest.
+4. No built-in TLS termination, user accounts, or RBAC.
+5. Branch protection must be enabled and verified by a repository
+   administrator.
+6. Performance benchmarks have not been rerun on this current code baseline.
+   Numbers in older status documents are historical and must not be used as
+   current performance claims.
+7. Parser and graph relation coverage is language- and fixture-dependent.
+   Presence of a parser does not imply complete call-graph or reference
+   extraction for every language.
 
-- **No provider is wired in.** The loop takes a reply and reviews it; running
-  a model is the caller's, because a bundled provider means an API key, a
-  network dependency and a bill.
-- **A re-index with one changed file is not faster.** Unchanged files are not
-  parsed again, which makes a no-op re-index 3x faster, but the write still
-  reads every node.
-- **Conflicts are file-level.** Two modules may define the same class without
-  a conflict being reported; only the same file base name in different modules
-  counts.
-- **Single-user access control.** A per-process token, not accounts. It binds
-  all interfaces, so do not expose it beyond a trusted network. Set
-  `ASTRA_TOKEN` to pin the token; there is no TLS.
-- **Config keys are indexed, values are not.** `.json` / `.yaml` / `.toml` are
-  parsed for their key paths, so a question about a setting finds the file
-  that declares it. The values are not in the graph.
-- **A question with no searchable word returns nothing.** "fix it" has no
-  term in any filename; name the subject.
-- **Tree-sitter needs a cache directory.** With neither `HOME` nor
-  `XDG_CACHE_HOME`, grammars cannot be downloaded and non-Python parsing is
-  skipped rather than failing.
-- **BLIND_MAX depth.** Source nested past ~900 levels is skipped.
+## Deployment boundary
 
-## Removed
-
-Modules with no caller outside their own tests were deleted. The coverage
-measurement found two more: RuntimeBrain (101 lines, zero callers) and
-DomainGraphEngine (the only class in graph_engine.py, likewise). 491 lines.
-
-They are gone from history as well as the tree — there is no branch holding
-them. Kept: `astra/cli` (the console script), `astra/patch/analyzer`
-(reachable from `dashboard_app.py`), `astra/core/config.py`.
-
-If one of them is wanted again it has to be rewritten; nothing to restore from.
+No Vercel integration or deployment has been created. That remains outside the
+approved scope.
