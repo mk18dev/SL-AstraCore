@@ -14,17 +14,28 @@ class IgnoreEngine:
         self._custom_patterns: list[str] = []
         if respect_astraignore:
             self._load_astraignore()
+        if respect_gitignore:
+            self._load_gitignore()
 
-    def _load_astraignore(self):
-        ignore_path = os.path.join(self._root, ".astraignore")
+    def _load_patterns(self, filename):
+        ignore_path = os.path.join(self._root, filename)
         if not os.path.isfile(ignore_path):
             return
-        with open(ignore_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                self._custom_patterns.append(line)
+        try:
+            with open(ignore_path, "r", encoding="utf-8") as stream:
+                for line in stream:
+                    line = line.strip().replace("\\", "/")
+                    if not line or line.startswith("#") or line.startswith("!"):
+                        continue
+                    self._custom_patterns.append(line.lstrip("/").rstrip("/"))
+        except OSError as exc:
+            logger.warning("could not read %s: %s", ignore_path, exc)
+
+    def _load_astraignore(self):
+        self._load_patterns(".astraignore")
+
+    def _load_gitignore(self):
+        self._load_patterns(".gitignore")
 
     def is_ignored(self, rel_path):
         parts = rel_path.replace("\\", "/").split("/")
