@@ -25,23 +25,22 @@ class MockKnowledgeGraph:
 
 def test_token_budget_enforcement():
     """TokenBudget correctly caps total tokens.
-    TokenBudget estimates: tokens = max(1, len(text) // 4).
-    So 200 chars = 50 tokens, 300 chars = 75 tokens. 50+75=125 > 100.
+    ASCII text is conservatively estimated at three characters per token.
     """
     budget = TokenBudget(max_budget=100)
-    texts = ["a" * 200, "b" * 200, "c" * 200]
+    texts = ["a" * 150, "b" * 150, "c" * 150]
     included = []
     for t in texts:
         if budget.reserve("id", t):
             included.append(t)
-    # 200 chars = 50 tokens each. 50+50=100 fits, third fails.
+    # 150 chars = 50 tokens each. 50+50=100 fits, third fails.
     assert len(included) == 2
 
 
 def test_token_budget_reset():
     """TokenBudget resets correctly."""
     budget = TokenBudget(max_budget=100)
-    budget.reserve("a", "x" * 200)
+    budget.reserve("a", "x" * 150)
     budget.reset()
     assert budget.used == 0
 
@@ -49,9 +48,9 @@ def test_token_budget_reset():
 def test_token_budget_can_fit():
     """TokenBudget.can_fit works correctly."""
     budget = TokenBudget(max_budget=100)
-    budget.reserve("a", "x" * 200)  # 50 tokens
-    assert budget.can_fit("y" * 80)
-    assert not budget.can_fit("z" * 204)  # 50+51=101 > 100
+    budget.reserve("a", "x" * 150)  # 50 tokens
+    assert budget.can_fit("y" * 120)  # 50+40=90
+    assert not budget.can_fit("z" * 153)  # 50+51=101 > 100
 
 
 def test_ranking_order():
@@ -93,3 +92,9 @@ def test_context_engine_runs():
     budget.reserve("node1", "file main.py FILE")
     budget.reserve("node2", "class Greeter CLASS")
     assert budget.used > 0
+
+
+
+def test_token_estimate_handles_non_ascii_text_conservatively():
+    assert TokenBudget.estimate("سلام") == 4
+    assert TokenBudget.estimate("a" * 100) == 34
