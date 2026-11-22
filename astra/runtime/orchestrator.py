@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import contextlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -567,10 +568,8 @@ class RuntimeOrchestrator:
                 os.fsync(stream.fileno())
             os.replace(temporary, path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(temporary)
-            except OSError:
-                pass
             raise
 
     def refresh_repo(self, root_path: str) -> RepoRecord:
