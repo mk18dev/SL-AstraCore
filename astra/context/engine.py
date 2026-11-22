@@ -13,6 +13,7 @@ from astra.ir.models import (
     ContextNodeRef,
     IRContextPack,
     NodeType,
+    TaskType,
 )
 
 
@@ -238,7 +239,7 @@ class ContextEngine:
                 f"Seeded repository context: {query_intent}"
                 if query_intent else "Seeded repository context"
             ),
-            task_type="seeded-retrieval",
+            task_type=TaskType.ANALYSIS,
             query_intent=query_intent,
             nodes=tuple(node_refs),
             edges=tuple(edge_refs),
