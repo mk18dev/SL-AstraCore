@@ -116,3 +116,46 @@ def test_idempotent_resolution():
     second = resolve_imports_into_edges([result, target])
 
     assert first == second
+
+
+
+def test_duplicate_basenames_resolve_using_source_directory():
+    auth_main = _make_result(
+        "src/auth/main.py",
+        [IRDependency(source_file="src/auth/main.py", target_module="utils", kind="import", line=1)],
+    )
+    auth_utils = _make_result("src/auth/utils.py")
+    payment_utils = _make_result("src/payment/utils.py")
+
+    _, edges = resolve_imports_into_edges([auth_main, auth_utils, payment_utils])
+
+    assert len(edges) == 1
+    assert edges[0].to_node == "src/auth/utils.py"
+
+
+def test_ambiguous_bare_import_is_not_resolved_to_arbitrary_package():
+    main = _make_result(
+        "src/main.py",
+        [IRDependency(source_file="src/main.py", target_module="utils", kind="import", line=1)],
+    )
+    auth_utils = _make_result("src/auth/utils.py")
+    payment_utils = _make_result("src/payment/utils.py")
+
+    resolved, edges = resolve_imports_into_edges([main, auth_utils, payment_utils])
+
+    assert resolved["utils"] == ""
+    assert edges == ()
+
+
+def test_package_import_resolves_to_its_init_file():
+    main = _make_result(
+        "src/main.py",
+        [IRDependency(source_file="src/main.py", target_module="src.services", kind="import", line=1)],
+    )
+    package = _make_result("src/services/__init__.py")
+    service = _make_result("src/services/auth.py")
+
+    _, edges = resolve_imports_into_edges([main, package, service])
+
+    assert len(edges) == 1
+    assert edges[0].to_node == "src/services/__init__.py"
