@@ -102,10 +102,10 @@ class RepositoryScannerPhase1Tests(unittest.TestCase):
 
     def test_gitignore_rules_apply_to_repository_scanner(self):
         with tempfile.TemporaryDirectory() as root:
-            self._write(root, "src/main.py", "print('keep')\\n")
-            self._write(root, "generated/skip.py", "print('skip')\\n")
-            self._write(root, "notes.tmp", "temporary\\n")
-            self._write(root, ".gitignore", "generated/\\n*.tmp\\n")
+            self._write(root, "src/main.py", "print('keep')\n")
+            self._write(root, "generated/skip.py", "print('skip')\n")
+            self._write(root, "notes.tmp", "temporary\n")
+            self._write(root, ".gitignore", "generated/\n*.tmp\n")
 
             index = RepositoryScanner(root).scan_repository()
             paths = {file.rel_path for file in index.files}
