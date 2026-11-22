@@ -258,9 +258,9 @@ def test_astraignore_and_shared_wildcard_rules_skip_files(tmp_path):
 def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "a.py").write_text("from b import target\\n", encoding="utf-8")
-    (repo / "b.py").write_text("def target():\\n    return 1\\n", encoding="utf-8")
-    (repo / "c.py").write_text("def target():\\n    return 2\\n", encoding="utf-8")
+    (repo / "a.py").write_text("from b import target\n", encoding="utf-8")
+    (repo / "b.py").write_text("def target():\n    return 1\n", encoding="utf-8")
+    (repo / "c.py").write_text("def target():\n    return 2\n", encoding="utf-8")
 
     runtime = RuntimeOrchestrator(
         metadata_db_path=str(tmp_path / "state" / "runtime.db")
@@ -279,7 +279,7 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
         for edge in first_graph.edges
     )
 
-    (repo / "a.py").write_text("from c import target\\n", encoding="utf-8")
+    (repo / "a.py").write_text("from c import target\n", encoding="utf-8")
     second_record = runtime.index_repo(str(repo))
 
     assert second_record.node_count == first_record.node_count
