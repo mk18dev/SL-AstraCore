@@ -13,7 +13,7 @@ COPY static/ static/
 RUN pip install --no-cache-dir .
 
 # Non-root runtime; repo DBs and journal live in this mounted volume.
-ENV ASTRA_HOME=/data
+ENV ASTRA_HOME=/data ASTRA_HOST=0.0.0.0
 RUN mkdir -p /data && useradd -m astra && chown -R astra:astra /data /app
 USER astra
 
