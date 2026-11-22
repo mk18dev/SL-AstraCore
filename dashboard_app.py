@@ -20,6 +20,12 @@ from astra.runtime.health import HealthDiagnostics
 from astra.runtime.telemetry import TelemetryEngine
 from astra.runtime.tracing import Tracer
 from astra.parser.registry import build_default_parser_registry
+from astra.providers import (
+    OpenAICompatibleProvider,
+    ProviderConfigStore,
+    ProviderConfigurationError,
+    ProviderRequestError,
+)
 
 app = FastAPI(title="SL-AstraCore", docs_url="/docs")
 
@@ -702,6 +708,119 @@ def web_manifest():
         Path(__file__).parent / "manifest.webmanifest",
         media_type="application/manifest+json",
     )
+
+
+def _provider_store() -> ProviderConfigStore:
+    return ProviderConfigStore()
+
+
+@app.get("/api/providers/config")
+def get_provider_config():
+    """Return non-secret provider settings. The API key is never serialized."""
+    config = _provider_store().load()
+    return ProviderConfigStore.public_view(config)
+
+
+@app.post("/api/providers/config")
+def save_provider_config(payload: Optional[dict] = None):
+    """Save provider settings locally; a blank key preserves the stored key."""
+    payload = payload or {}
+    try:
+        config = _provider_store().save(
+            provider=str(payload.get("provider", "openai-compatible")),
+            base_url=str(payload.get("base_url", "https://api.openai.com/v1")),
+            model=str(payload.get("model", "gpt-4o-mini")),
+            api_key=payload.get("api_key"),
+            clear_api_key=bool(payload.get("clear_api_key", False)),
+        )
+    except ProviderConfigurationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ProviderConfigStore.public_view(config)
+
+
+@app.post("/api/providers/test")
+async def test_provider_connection():
+    """Perform a minimal live request without returning or logging credentials."""
+    try:
+        config = await run_in_threadpool(_provider_store().load)
+        provider = OpenAICompatibleProvider(config)
+        response = await run_in_threadpool(
+            provider, "Reply with exactly this text and nothing else: ASTRA_PROVIDER_OK"
+        )
+        if "ASTRA_PROVIDER_OK" not in response:
+            raise ProviderRequestError("provider responded, but the test phrase was missing")
+        return {"status": "connected", "provider": config.provider, "model": config.model}
+    except (ProviderConfigurationError, ProviderRequestError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/agent/run")
+async def agent_run(payload: Optional[dict] = None):
+    """Build repository context, call the configured model, and review its patch.
+
+    This endpoint never writes source files. Applying a reviewed edit remains
+    a separate explicit operation through the existing patch/apply route.
+    """
+    from astra.agent.loop import run as run_agent
+
+    payload = payload or {}
+    query = str(payload.get("query", "")).strip()
+    if not query or len(query) > 4000:
+        raise HTTPException(status_code=400, detail="query must contain 1–4000 characters")
+    candidate = str(Path(str(payload.get("path", ""))).resolve())
+    root = _confine_to_registered_repo(candidate)
+    record = _get_or_create(root)
+
+    try:
+        config = _provider_store().load()
+        provider = OpenAICompatibleProvider(config)
+        budget = payload.get("max_tokens", 8000)
+        try:
+            budget = int(budget)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_tokens must be an integer")
+        if not 256 <= budget <= 32000:
+            raise HTTPException(status_code=400, detail="max_tokens must be between 256 and 32000")
+
+        pack = await run_in_threadpool(
+            _orchestrator.query_context,
+            root,
+            [],
+            query,
+            budget,
+        )
+        result = await run_in_threadpool(
+            run_agent,
+            query,
+            provider,
+            pack,
+            root,
+        )
+    except (ProviderConfigurationError, ProviderRequestError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "status": "reviewed" if result.applies_cleanly else "rejected",
+        "risk": result.risk,
+        "confidence": result.confidence,
+        "downstream": result.downstream,
+        "warnings": list(result.warnings),
+        "context": {
+            "nodes": len(pack.nodes),
+            "tokens": pack.total_tokens,
+            "token_budget": pack.token_budget,
+        },
+        "edits": [
+            {
+                "path": edit.path,
+                "reason": edit.reason,
+                "added": diff.added,
+                "removed": diff.removed,
+                "modified": diff.modified,
+            }
+            for edit, (_path, diff) in zip(result.edits, result.diffs, strict=False)
+        ],
+    }
 
 
 @app.post("/api/agent/propose")
