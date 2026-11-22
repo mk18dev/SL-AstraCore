@@ -7,6 +7,7 @@ with owner-only permissions where the platform supports POSIX modes.
 from __future__ import annotations
 
 import json
+import contextlib
 import os
 import tempfile
 from dataclasses import dataclass
@@ -113,10 +114,8 @@ class ProviderConfigStore:
             prefix=".providers-", suffix=".tmp", dir=str(self.path.parent)
         )
         try:
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(temporary, 0o600)
-            except OSError:
-                pass
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 json.dump(
                     {
@@ -133,15 +132,11 @@ class ProviderConfigStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.path)
-            try:
+            with contextlib.suppress(OSError):
                 os.chmod(self.path, 0o600)
-            except OSError:
-                pass
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(temporary)
-            except OSError:
-                pass
             raise
         return config
 
@@ -207,7 +202,7 @@ class OpenAICompatibleProvider:
             raise ProviderRequestError(
                 f"provider connection failed: {type(exc).__name__}"
             ) from None
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError):
             raise ProviderRequestError("provider returned invalid JSON") from None
 
         try:
