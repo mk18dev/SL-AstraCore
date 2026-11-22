@@ -119,3 +119,21 @@ def test_modal_manages_focus():
     assert "function openAddModal()" in SOURCE
     assert "repoPathInput').focus()" in SOURCE, "opening the modal must move focus into it"
     assert "_addModalReturnFocus" in SOURCE, "closing must return focus to the trigger"
+
+
+def test_runtime_stream_uses_bearer_fetch_not_eventsource():
+    body = _body_of("setupRuntimeStream")
+    assert "fetch('/api/stream'" in body
+    assert "Authorization" in body and "ASTRA_TOKEN" in body
+    assert "new EventSource" not in SOURCE
+    assert "visibilitychange" in SOURCE
+
+
+def test_provider_settings_and_ai_review_are_exposed_in_the_spa():
+    assert 'id="mProvider"' in SOURCE
+    assert 'id="providerApiKey"' in SOURCE
+    assert "function saveProviderConfig()" in SOURCE
+    assert "function testProviderConnection()" in SOURCE
+    assert "function runAgent()" in SOURCE
+    assert "'/api/agent/run'" in SOURCE
+    assert "Nothing was changed on disk" in SOURCE
