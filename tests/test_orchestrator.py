@@ -275,7 +275,7 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
     )
     first_signature, first_graph = runtime._graph_cache[str(repo.resolve())]
     assert any(
-        edge.type.name == "IMPORTS" and edge.to_node.endswith("/b.py")
+        edge.type.name == "IMPORTS" and edge.to_node.replace(chr(92), "/").endswith("/b.py")
         for edge in first_graph.edges
     )
 
@@ -297,10 +297,10 @@ def test_context_graph_cache_invalidates_when_import_target_changes(tmp_path):
     assert second_signature != first_signature
     assert second_graph is not first_graph
     assert any(
-        edge.type.name == "IMPORTS" and edge.to_node.endswith("/c.py")
+        edge.type.name == "IMPORTS" and edge.to_node.replace(chr(92), "/").endswith("/c.py")
         for edge in second_graph.edges
     )
     assert not any(
-        edge.type.name == "IMPORTS" and edge.to_node.endswith("/b.py")
+        edge.type.name == "IMPORTS" and edge.to_node.replace(chr(92), "/").endswith("/b.py")
         for edge in second_graph.edges
     )
