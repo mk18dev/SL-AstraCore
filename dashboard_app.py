@@ -886,6 +886,11 @@ async def agent_propose(payload: Optional[dict] = None):
     }
 
 
+def _server_host() -> str:
+    """Bind to loopback by default; opt into network exposure explicitly."""
+    return os.environ.get("ASTRA_HOST", "127.0.0.1")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -897,4 +902,4 @@ if __name__ == "__main__":
     else:
         print("  Access token: loaded from ASTRA_TOKEN")
     print("  (authentication is always enabled)\n")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host=_server_host(), port=port)
