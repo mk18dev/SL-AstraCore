@@ -40,7 +40,7 @@ class IgnoreEngine:
     def is_ignored(self, rel_path):
         parts = rel_path.replace("\\", "/").split("/")
         for part in parts:
-            if part in self._dir_patterns:
+            if any(fnmatch.fnmatch(part, pattern) for pattern in self._dir_patterns):
                 return True
         for pattern in self._custom_patterns:
             if fnmatch.fnmatch(rel_path, pattern):
@@ -52,7 +52,7 @@ class IgnoreEngine:
         return ext in self._ext_patterns
 
     def is_ignored_dir(self, dir_name):
-        if dir_name in self._dir_patterns:
+        if any(fnmatch.fnmatch(dir_name, pattern) for pattern in self._dir_patterns):
             return True
         return any(fnmatch.fnmatch(dir_name, pattern) for pattern in self._custom_patterns)
 
