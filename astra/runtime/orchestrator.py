@@ -637,13 +637,16 @@ class RuntimeOrchestrator:
         from astra.models.knowledge_graph import KnowledgeGraph
         from astra.context.context_engine import ContextEngine as TaskContextEngine
 
-        # Reuse the graph between queries. Rebuilding it meant a fresh DuckDB
-        # connection plus a full row-to-node conversion on every question: 141ms
-        # of the 180ms query, and 2.1s for the first one. It is invalidated by
-        # node_count, so an index in between is picked up.
+        # Reuse the graph between queries, but invalidate it on every index
+        # generation. Node count alone is insufficient: replacing one import
+        # with another preserves node/edge counts while changing graph topology.
+        signature = (
+            record.node_count,
+            record.edge_count,
+            record.last_indexed,
+        )
         cached = self._graph_cache.get(record.root_path)
-        node_count = storage.node_count()
-        if cached is not None and cached[0] == node_count:
+        if cached is not None and cached[0] == signature:
             kg = cached[1]
         else:
             kg = KnowledgeGraph()
@@ -665,16 +668,24 @@ class RuntimeOrchestrator:
                 kg.node_index[gn.id] = gn
             for e in storage.get_all_edges():
                 kg.edges.append(e)
-            self._graph_cache[record.root_path] = (node_count, kg)
+            self._graph_cache[record.root_path] = (signature, kg)
 
-        # Reuse the term counts: the graph is rebuilt every query, but the file
-        # set it describes has not changed since the last index.
-        frequency, files_indexed = self._document_frequency.get(record.root_path, (None, None))
+        # Document frequencies are generation-specific too. Reusing them after
+        # a same-size source replacement biases ranking toward stale terms.
+        frequency_cache = self._document_frequency.get(record.root_path)
+        if frequency_cache is not None and frequency_cache[0] == signature:
+            frequency, files_indexed = frequency_cache[1], frequency_cache[2]
+        else:
+            frequency, files_indexed = None, None
 
         engine = TaskContextEngine(
             kg, document_frequency=frequency, files_indexed=files_indexed
         )
-        self._document_frequency[record.root_path] = engine._ranking.carried_over()
+        self._document_frequency[record.root_path] = (
+            signature,
+            engine._ranking.carried_over(),
+            files_indexed,
+        )
         if max_tokens and max_tokens > 0:
             engine._token_budget.set_budget(max_tokens)
         _analysis, _pack, _deps, _risks = engine.build_pack(query_intent)
