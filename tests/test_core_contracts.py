@@ -82,8 +82,8 @@ def test_graph_node_ir_mapping_and_safe_fallback():
 
 
 def test_file_terms_split_identifiers_filter_stopwords_and_bound_reads(tmp_path):
-    assert {"parse", "file"} <= _tokens("def parseFile(): pass")
-    assert {"parse", "file"} <= _tokens("parse_file")
+    assert {"parse", "module"} <= _tokens("def parseModule(): pass")
+    assert {"parse", "module"} <= _tokens("parse_module")
     assert "import" not in _tokens("import os")
     assert _tokens("a an the") == set()
 
