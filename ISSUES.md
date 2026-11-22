@@ -1,61 +1,62 @@
-# فهرست ایرادات — SL-AstraCore
+# SL-AstraCore — ایرادات و وضعیت واقعی
 
-سنجش‌شده در `6040d8e`. هر عدد قابل بازتولید است.
+آخرین baseline تأییدشده: commit
+`ec7d3b1c7c9835d789037787d07348209d462b0b`
 
-خط مبنا: ۵۰ = «قابل استفاده برای کاری که ادعا می‌کند». بالای ۸۰ یعنی ابزار قابل اتکاست.
+تاریخ بررسی: ۱۴۰۵/۰۹/۰۲
 
----
+این فایل جایگزین فهرست قدیمی مبتنی بر commit `6040d8e` است. اعداد و
+بنچمارک‌های قبلی بدون اجرای مجدد، معیار وضعیت فعلی نیستند.
 
-## ✅ ایرادات حل‌شده
+## موارد پیاده‌سازی‌شده و تأییدشده
 
-| # | ایراد | ریشه | چطور درست شد |
-|---|---|---|---|
-| 1.1 | pack فقط ۲۶٪ کد داشت | `max_nodes` ثابت مستقل از بودجه | از بودجه مشتق می‌شود → **۶۲٪** |
-| 1.2 | بودجهٔ بیشتر تقریباً بی‌اثر | — | ۲۰۰۰→۱۶۰۰۰ حالا **۸.۰×** |
-| 1.3 | **حلقهٔ agent وجود نداشت** | README ادعا می‌کرد، درخت نداشت | `astra/agent/` — pack → مدل → تحلیل → تأیید |
-| 1.4 | seed فقط از نام فایل | محتوای فایل ایندکس نمی‌شد | `_build_indexes` واژگان فایل را هم ایندکس می‌کند |
-| 1.5 | یک کلمهٔ مشترک = «نام پاسخ است» | `token_budget.py` بر `dashboard_app.py` می‌برد | `_name_answers` حداقل دو کلمه می‌خواهد |
-| 1.6 | CLI تست‌نشده | entry point مقدار `return` را دور می‌ریخت | `console_main` + **۱۱ تست** |
-| 2.1 | ایندکس ۳۰۰۰ فایل = ۹۵ ثانیه | `_io.open` ۲۰ از ۹۵ ثانیه (فیلتر آنتی‌ویروس) | ThreadPool → **۷.۵ ثانیه** |
-| 2.2 | اولین query = ۲.۱ ثانیه | گراف در هر query از storage بازسازی می‌شد | کش با ابطال بر اساس `node_count` |
-| 2.3 | query = ۲۱۹ms | — | **۶۲ms** |
-| 2.4 | **re-index همه‌چیز را می‌خواند** | یال‌ها از جفت فایل ساخته می‌شوند | **incremental**؛ بی‌تغییر **۳× سریع‌تر** |
-| 3.1 | ۳٬۸۰۷ خط کد مرده | — | حذف + ۴۹۱ خط دیگر از measurement |
-| 4.1 | پوشش اندازه‌گیری‌نشده | `coverage` نصب نمی‌شود | `coverage.py` با `sys.settrace` → **۸۸٪** |
-| 4.2 | یک فایل بدون تست | `cli` چون subprocess بود | `test_cli_in_process.py` |
-| 5.1 | CI قرمز ولی issue سبز | reporter تست را **دوباره اجرا** می‌کرد | خروجی واقعی را منتشر می‌کند |
-| 5.2 | شکست تست = سبز دیده می‌شد | `pipe` در `pwsh` کد صفر برمی‌گرداند | `shell: bash` + `PIPESTATUS` |
-| 5.3 | تست‌های ویندوزی وابسته به مسیر | `F:/proj` در لینوکس relative است | fixture از `abspath` |
-| 6.1 | README ادعاهای تأییدنشده | agent layer، resilience، incremental | با اندازه‌گیری اصلاح شد |
-| 6.2 | trailerهای Claude در تاریخچه | — | بازنویسی تاریخ |
+| حوزه | وضعیت |
+|---|---|
+| Unified Runtime / ingestion | مسیر ingestion یکپارچه و checkpoint/manifest پایدار اضافه شده |
+| Scanner | ignore rules، شناسه‌های قطعی و incremental state |
+| Parser / IR | registry و adapterها با تست چندپلتفرمی |
+| Import resolver | حفظ ambiguity برای مقصدهای چندگانه |
+| Graph / Storage | گراف و backendهای پایدار با تست‌های تراکنش و دسترسی |
+| Context | ranking، retrieval مبتنی بر سورس و سقف بودجهٔ تخمینی |
+| Dashboard / API | احراز هویت bearer، محدودسازی مسیر repository و SSE احرازشده |
+| Model provider | ورود API Key از داشبورد و اتصال OpenAI-compatible |
+| AI review | ساخت context و بررسی پیشنهاد؛ بدون اعمال خودکار فایل |
+| Security | bind محلی پیش‌فرض، CodeQL و pip-audit در CI |
+| Packaging | ساخت و نصب wheel بیرون از سورس + Docker smoke test |
+| Coverage | حداقل اجباری ۹۵٪؛ آخرین اندازه‌گیری ۹۵٫۳٪ |
 
----
+## گیت‌های آخرین اجرای کامل
 
-## ⚠️ باقی‌مانده
+[GitHub Actions run #45082074980](https://github.com/Mk18dev/SL-AstraCore/actions/runs/45082074980)
 
-| # | ایراد | شدت | چرا حل نشد |
-|---|---|:---:|---|
-| R1 | **re-index با یک فایل تغییرکرده سریع‌تر نیست** | 🟡 | نوشتن هنوز کل جدول نود را می‌خواند. فقط parse کم شده، نه خواندن |
-| R2 | **conflict فقط روی نام فایل است** | 🟢 | دو ماژول می‌توانند کلاس هم‌نام داشته باشند و conflict گزارش نشود |
-| R3 | **۱ از ۱۲ پرسش رتبهٔ ۱ ندارد** | 🟡 | هنوز مدل معنایی نیست؛ ریشه + IDF است |
-| R4 | **هیچ provider مدلی وصل نیست** | 🟢 | عمدی. حلقه reply می‌گیرد؛ وصل کردن یعنی API key و صورتحساب |
-| R5 | **پرسش بدون کلمهٔ کلیدی چیزی برنمی‌گرداند** | 🟢 | «fix it» در هیچ نام فایلی نیست. باید موضوع را نام ببرید |
+- ۴۹۸ تست موفق در Ubuntu / Python 3.11
+- ماتریس Ubuntu، macOS و Windows با Python 3.11 و 3.12: هر ۶ ترکیب سبز
+- Ruff و mypy: موفق
+- Coverage: ۵۱۷۶ از ۵۴۳۴ خط اجرایی، معادل ۹۵٫۳٪
+- Wheel build/install: موفق
+- Docker build/smoke: موفق
+- CodeQL و dependency audit: موفق
+- CI required gate: موفق
 
----
+## موارد باز
 
-## وضعیت گیت‌ها
+| # | مورد | اولویت | وضعیت / دلیل |
+|---|---|---:|---|
+| R1 | فعال‌سازی Branch Protection روی main | P0 | تنظیم GitHub است، نه فایل workflow؛ اتصال فعلی فقط خواندن این تنظیمات را می‌دهد. دستور دقیق در docs/BRANCH_PROTECTION.md ثبت شده |
+| R2 | رمزنگاری API Key در حالت ذخیره‌شده | P1 | فعلاً plaintext با محدودیت مجوز فایل است؛ باید OS keyring یا راهکار امن و قابل‌اتکا برای هر سه سیستم‌عامل بررسی و پیاده‌سازی شود |
+| R3 | TLS و RBAC داخلی | P1 | محصول local-first و تک‌کاربره است؛ برای استقرار چندکاربره باید threat model و احراز هویت جداگانه طراحی شود |
+| R4 | Providerهای native و streaming | P2 | فعلاً فقط OpenAI-compatible chat completions پیاده شده |
+| R5 | Tokenizer واقعی هر مدل | P2 | بودجه با estimator محافظه‌کارانهٔ UTF-8 محاسبه می‌شود؛ تعداد token دقیق هر provider تضمین نمی‌شود |
+| R6 | بنچمارک مجدد performance | P1 | عددهای قبلی مربوط به baseline قدیمی‌اند؛ باید روی commit فعلی و fixture ثابت دوباره اندازه‌گیری شوند |
+| R7 | ماتریس صحت parser و graph relation به تفکیک زبان | P1 | وجود adapter به‌تنهایی اثبات Call/Reference graph کامل نیست؛ fixture و ground-truth مستقل لازم است |
 
-```
-ubuntu   3.11  ✅      331 passed, 1 skipped
-ubuntu   3.12  ✅      ruff: صفر
-windows  3.11  ✅      mypy: صفر / ۹۶ فایل
-windows  3.12  ✅      coverage: ۸۸٪
-```
+## نکات امنیتی مهم
 
-## آنچه حذف شد
+- فایل تنظیمات Provider شامل API Key است و رمزنگاری‌شده نیست؛ آن را commit یا share نکن.
+- اجرای مستقیم dashboard روی loopback است؛ Docker داخل container روی همهٔ interfaceها bind می‌کند.
+- Docker را بدون reverse proxy دارای TLS و firewall روی شبکهٔ غیرقابل‌اعتماد publish نکن.
+- خروجی مدل پیشنهاد است؛ بررسی و اعمال آن دو مرحلهٔ مستقل‌اند.
 
-۴۶ ماژول و ۲٬۷۸۸ خط که هیچ فراخوان بیرون از تست‌های خودشان نداشتند، به‌علاوهٔ `RuntimeBrain` و `DomainGraphEngine` که measurement پیدا کرد (۴۹۱ خط).
+## مرز استقرار
 
-**شاخهٔ بکاپ حذف شده است** — هم از محلی و هم از ریموت. تاریخچه هم بازنویسی شد، پس چیزی برای بازگردانی نیست. اگر یکی از این‌ها لازم شد، باید از نو نوشته شود.
-
-**نگه‌داشته شد:** `astra/cli` (entry point رسمی)، `astra/patch/analyzer` (از `dashboard_app.py` صدا زده می‌شود)، `astra/core/config.py`.
+هیچ deployment یا اتصال Vercel انجام نشده است. این مورد تا اجازهٔ صریح جداگانه خارج از scope باقی می‌ماند.
