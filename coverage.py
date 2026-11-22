@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PACKAGE = (ROOT / "astra").resolve()
-MIN_COVERAGE_PERCENT = 90.0
+MIN_COVERAGE_PERCENT = 95.0
 
 
 def executable_lines(path: Path) -> set:
