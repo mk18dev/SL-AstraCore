@@ -100,6 +100,20 @@ class RepositoryScannerPhase1Tests(unittest.TestCase):
             self.assertEqual(unchanged_resume.metadata.files_indexed, 0)
             self.assertEqual(unchanged_resume.metadata.metadata["skipped_unchanged"], 3)
 
+    def test_gitignore_rules_apply_to_repository_scanner(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._write(root, "src/main.py", "print('keep')\\n")
+            self._write(root, "generated/skip.py", "print('skip')\\n")
+            self._write(root, "notes.tmp", "temporary\\n")
+            self._write(root, ".gitignore", "generated/\\n*.tmp\\n")
+
+            index = RepositoryScanner(root).scan_repository()
+            paths = {file.rel_path for file in index.files}
+
+            self.assertIn("src/main.py", paths)
+            self.assertNotIn("generated/skip.py", paths)
+            self.assertNotIn("notes.tmp", paths)
+
     def test_repository_index_store_persists_index(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out_dir:
             self._write(root, "main.py", "print('ok')\n")
