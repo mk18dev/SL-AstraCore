@@ -25,8 +25,7 @@ def resolve_imports_into_edges(
         (resolved_imports_map, dependency_edges)
     """
     root_prefix = _common_root(parse_results)
-    module_to_file: dict[str, str] = {}
-    file_to_module: dict[str, str] = {}
+    module_to_files: dict[str, set[str]] = {}
     parsed_files: dict[str, str] = {
         _relativize(r.file_node.file_path, root_prefix): r.file_node.file_path
         for r in parse_results
@@ -39,19 +38,22 @@ def resolve_imports_into_edges(
         fp = result.file_node.file_path
         rel_fp = _relativize(fp, root_prefix)
         file_path = Path(rel_fp)
-
-        stem = file_path.stem
         parent = file_path.parent.as_posix()
+        stem = file_path.stem
 
-        file_to_module[fp] = safe_module(parent, stem)
+        # __init__.py represents its containing package. Registering every
+        # dotted prefix against arbitrary descendant files caused collisions
+        # and fabricated package edges.
+        if stem == "__init__":
+            module = parent.replace("/", ".").strip(".")
+            if module:
+                module_to_files.setdefault(module, set()).add(fp)
+            continue
 
-        abs_module = safe_module(parent, stem)
-        module_to_file[abs_module] = fp
-        module_to_file[stem] = fp
-
-        parts = abs_module.split(".")
-        for i in range(1, len(parts) + 1):
-            module_to_file[".".join(parts[:i])] = fp
+        module = safe_module(parent, stem)
+        module_to_files.setdefault(module, set()).add(fp)
+        # A bare stem is a useful local-import fallback only while unique.
+        module_to_files.setdefault(stem, set()).add(fp)
 
     resolved_imports: dict[str, str] = {}
     dep_edges: list[IREdge] = []
@@ -64,7 +66,7 @@ def resolve_imports_into_edges(
 
         for dep in result.dependencies:
             resolved_path = _resolve_one_import(
-                dep, rel_src, module_to_file, file_to_module, parsed_files,
+                dep, rel_src, module_to_files, parsed_files,
             )
             resolved_imports[dep.target_module] = resolved_path or ""
 
@@ -128,11 +130,20 @@ def _relativize(fp: str, root_prefix: str | None) -> str:
     return fp
 
 
+def _unique_module_candidate(
+    module: str,
+    module_to_files: dict[str, set[str]],
+) -> str | None:
+    candidates = module_to_files.get(module, set())
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return None
+
+
 def _resolve_one_import(
     dep: IRDependency,
     source_file: str,
-    module_to_file: dict[str, str],
-    _file_to_module: dict[str, str],
+    module_to_files: dict[str, set[str]],
     parsed_files: dict[str, str],
 ) -> str | None:
     target = dep.target_module
@@ -140,21 +151,25 @@ def _resolve_one_import(
     if target in parsed_files:
         return parsed_files[target]
 
-    if target in module_to_file:
-        return module_to_file[target]
-
     source_dir = posixpath.dirname(source_file)
 
     if target.startswith(("./", "../")):
         return _resolve_js_relative(target, source_dir, parsed_files)
 
     if target.startswith(".") or dep.level > 0:
-        return _resolve_python_relative(dep, source_dir, module_to_file, parsed_files)
+        return _resolve_python_relative(dep, source_dir, module_to_files, parsed_files)
+
+    # Prefer an unambiguous fully-qualified or bare module match. If a bare
+    # stem occurs in multiple packages, leave it unresolved until the
+    # source-directory-relative candidate below can disambiguate it.
+    candidate = _unique_module_candidate(target, module_to_files)
+    if candidate:
+        return candidate
 
     base = posixpath.normpath(posixpath.join(source_dir, target.replace(".", "/")))
     for cand in (f"{base}.py", f"{base}/__init__.py"):
         if cand in parsed_files:
-            return cand
+            return parsed_files[cand]
 
     return None
 
@@ -162,7 +177,7 @@ def _resolve_one_import(
 def _resolve_python_relative(
     dep: IRDependency,
     source_dir: str,
-    module_to_file: dict[str, str],
+    module_to_files: dict[str, set[str]],
     parsed_files: dict[str, str],
 ) -> str | None:
     target = dep.target_module
@@ -187,10 +202,7 @@ def _resolve_python_relative(
             return parsed_files[cand]
 
     mod = f"{base}.{rest}" if base else rest
-    if mod in module_to_file:
-        return module_to_file[mod]
-    return None
-
+    return _unique_module_candidate(mod, module_to_files)
 
 def _resolve_js_relative(target: str, source_dir: str, parsed_files: dict[str, str]) -> str | None:
     base = posixpath.normpath(posixpath.join(source_dir, target))
