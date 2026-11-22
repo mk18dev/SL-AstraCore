@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a GitHub Release for the selected v* tag after building and validating artifacts"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and validate distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+          sha256sum dist/* > dist/SHA256SUMS.txt
+      - name: Install wheel outside source tree
+        run: |
+          python -m venv /tmp/sl-astracore-release-smoke
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          /tmp/sl-astracore-release-smoke/bin/python -m pip install "$WHEEL"
+          cd /tmp
+          /tmp/sl-astracore-release-smoke/bin/python -c "import astra; from astra.runtime.orchestrator import RuntimeOrchestrator; print('wheel import smoke: OK')"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: sl-astracore-release-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    if: inputs.publish_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Validate release tag and package version
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          case "$REF" in
+            refs/tags/v*) ;;
+            *) echo "Publishing requires dispatching this workflow on a v* tag." >&2; exit 1 ;;
+          esac
+          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "$VERSION" = "${REF_NAME#v}" || {
+            echo "Tag $REF_NAME does not match package version $VERSION" >&2
+            exit 1
+          }
+      - name: Download validated distribution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name sl-astracore-release-dist --dir dist
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
