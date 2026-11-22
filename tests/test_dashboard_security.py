@@ -126,3 +126,13 @@ def test_server_binds_to_loopback_by_default(monkeypatch):
 def test_server_network_binding_requires_explicit_configuration(monkeypatch):
     monkeypatch.setenv("ASTRA_HOST", "0.0.0.0")
     assert da._server_host() == "0.0.0.0"
+
+
+
+def test_cli_server_uses_dashboard_host_policy(monkeypatch):
+    from astra.cli import _server_host as cli_server_host
+
+    monkeypatch.delenv("ASTRA_HOST", raising=False)
+    assert cli_server_host() == "127.0.0.1"
+    monkeypatch.setenv("ASTRA_HOST", "0.0.0.0")
+    assert cli_server_host() == "0.0.0.0"
