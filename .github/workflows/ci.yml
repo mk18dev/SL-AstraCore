@@ -195,7 +195,7 @@ jobs:
           STRICT_KPI: "1"
         run: python -m pytest tests/test_benchmarks_kpi.py -q -s
 
-  workflow-validation:
+  workflow_validation:
     name: workflow validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
