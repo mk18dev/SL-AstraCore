@@ -8,12 +8,12 @@
 
 Scan → Parse → Graph → Enrich → Context Packs, behind a live star-chart dashboard.
 
-[![Tests](https://img.shields.io/badge/tests-281%20passed-brightgreen)](#quality)
+[![CI](https://github.com/Mk18dev/SL-AstraCore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Mk18dev/SL-AstraCore/actions/workflows/ci.yml)
 [![mypy](https://img.shields.io/badge/mypy-clean-blue)](#quality)
 [![ruff](https://img.shields.io/badge/ruff-clean-blue)](#quality)
 [![Python](https://img.shields.io/badge/python-3.11+-informational)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macOS-lightgrey)](#install)
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)](#install)
 
 </div>
 
@@ -41,7 +41,7 @@ every import a constellation line, patterns and conflicts are marked in the log.
 Requires Python 3.11+.
 
 ```bash
-git clone https://github.com/supremeloki/SL-AstraCore.git
+git clone https://github.com/Mk18dev/SL-AstraCore.git
 cd SL-AstraCore
 pip install -r requirements.txt
 pip install -e .
@@ -132,7 +132,7 @@ RepositoryScanner → ParserRegistry → ImportResolver → DuckDB/SQLite
 ## Quality
 
 ```bash
-python -m pytest tests/ -q                      # 418 passed, 1 skipped
+python -m pytest tests/ -q
 python -m mypy astra/ dashboard_app.py          # Success: no issues in 96 files
 python -m ruff check astra/ tests/ dashboard_app.py   # All checks passed
 ```
@@ -143,10 +143,9 @@ across Linux and Windows. Measured on this repository:
 
 | | |
 |---|---|
-| index 3,000 files | 7.5s (402 files/s) |
-| query | 62ms median |
-| ranking accuracy, 12 real questions | 8/12 first place, 12/12 top three |
-| pack carrying source at a 4k budget | 8 of 13 nodes |
+These performance figures are historical local measurements, not CI gates.
+They must be re-established with the benchmark suite before being treated as
+current performance guarantees.
 
 ### Known limitations
 
