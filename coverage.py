@@ -31,12 +31,20 @@ class Collector:
     def __init__(self, package: Path):
         self.package = package.resolve()
         self.hits: dict[Path, set[int]] = {}
+        self._path_cache: dict[str, Path | None] = {}
 
     def tracer(self, frame, event, arg):
-        try:
-            filename = Path(frame.f_code.co_filename).resolve()
-            filename.relative_to(self.package)
-        except (OSError, ValueError):
+        raw_filename = frame.f_code.co_filename
+        if raw_filename not in self._path_cache:
+            try:
+                filename = Path(raw_filename).resolve()
+                filename.relative_to(self.package)
+                self._path_cache[raw_filename] = filename
+            except (OSError, ValueError):
+                self._path_cache[raw_filename] = None
+
+        filename = self._path_cache[raw_filename]
+        if filename is None:
             return None
         if event == "line":
             self.hits.setdefault(filename, set()).add(frame.f_lineno)
