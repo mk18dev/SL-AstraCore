@@ -11,7 +11,6 @@ from astra.context.token_budget import MAX_BUDGET, TokenBudget
 from astra.ir.models import (
     ContextEdgeRef,
     ContextNodeRef,
-    EdgeType,
     IRContextPack,
     NodeType,
 )
