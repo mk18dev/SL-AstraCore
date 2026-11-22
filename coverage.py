@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PACKAGE = (ROOT / "astra").resolve()
+MIN_COVERAGE_PERCENT = 90.0
 
 
 def executable_lines(path: Path) -> set:
@@ -117,3 +118,13 @@ if __name__ == "__main__":
         print(f"  {name}")
 
     (ROOT / "coverage-report.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+
+    if total["percent"] < MIN_COVERAGE_PERCENT:
+        print(
+            f"Coverage gate failed: {total['percent']}% is below "
+            f"the required {MIN_COVERAGE_PERCENT:.1f}%",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    print(f"Coverage gate passed: minimum {MIN_COVERAGE_PERCENT:.1f}%")
