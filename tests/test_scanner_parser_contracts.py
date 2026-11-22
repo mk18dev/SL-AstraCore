@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import builtins
 from types import SimpleNamespace
+import sys
 
 from astra.models.file_node import FileCategory
-from astra.parser.registry import ParserRegistry
+from astra.parser import registry as registry_module
+from astra.parser.registry import ParserRegistry, _JSTSTreeSitterAdapter
 from astra.scanner.binary_detector import BinaryDetector
 from astra.scanner.hash_engine import HashEngine
 from astra.scanner.language_detector import LanguageDetector
@@ -116,3 +118,80 @@ def test_parser_registry_normalizes_extensions_and_dispatches():
     assert registry.parse("README.md", "ignored") is None
     assert registry.supported_languages() == ("sample",)
     assert registry.supported_extensions() == (".smp",)
+
+
+
+def test_parser_registry_global_instance_is_cached(monkeypatch):
+    sentinel = ParserRegistry()
+    monkeypatch.setattr(registry_module, "_global_registry", None)
+    monkeypatch.setattr(
+        registry_module, "build_default_parser_registry", lambda: sentinel
+    )
+    assert registry_module.get_parser_registry() is sentinel
+    assert registry_module.get_parser_registry() is sentinel
+
+
+def test_js_ts_adapter_dispatches_by_extension(monkeypatch):
+    class FakeTreeSitterAdapter:
+        def __init__(self, language):
+            self.language = language
+
+        def parse(self, file_path, content):
+            return self.language, file_path, content
+
+    monkeypatch.setattr(
+        "astra.parser.tree_sitter_adapter.TreeSitterAdapter",
+        FakeTreeSitterAdapter,
+    )
+    fake_language_pack = SimpleNamespace(
+        SupportedLanguage=str,
+        get_parser=lambda language: object(),
+    )
+    monkeypatch.setitem(sys.modules, "tree_sitter_language_pack", fake_language_pack)
+
+    adapter = _JSTSTreeSitterAdapter()
+    assert adapter.can_parse("component.TSX")
+    assert not adapter.can_parse("component.vue")
+    assert adapter.parse("component.tsx", "code")[0] == "tsx"
+    assert adapter.parse("component.ts", "code")[0] == "typescript"
+    assert adapter.parse("component.jsx", "code")[0] == "javascript"
+
+
+def test_js_ts_adapter_falls_back_when_tsx_grammar_is_unavailable(monkeypatch):
+    class FakeTreeSitterAdapter:
+        def __init__(self, language):
+            self.language = language
+
+        def parse(self, file_path, content):
+            return self.language
+
+    monkeypatch.setattr(
+        "astra.parser.tree_sitter_adapter.TreeSitterAdapter",
+        FakeTreeSitterAdapter,
+    )
+
+    def get_parser(language):
+        if language == "tsx":
+            return None
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "tree_sitter_language_pack",
+        SimpleNamespace(SupportedLanguage=str, get_parser=get_parser),
+    )
+    adapter = _JSTSTreeSitterAdapter()
+    assert adapter._tsx is None
+    assert adapter.parse("component.tsx", "code") == "typescript"
+
+
+def test_js_ts_adapter_handles_grammar_probe_failure(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "tree_sitter_language_pack",
+        SimpleNamespace(
+            SupportedLanguage=str,
+            get_parser=lambda language: (_ for _ in ()).throw(RuntimeError("missing")),
+        ),
+    )
+    assert not _JSTSTreeSitterAdapter._has_parser("javascript")
