@@ -90,20 +90,32 @@ class ContextEngine:
         seeds = set(pack.metadata.get("seed_ids", ()))
         kept = []
         dropped = False
-        # Seeds are reserved unconditionally; non-seeds fill the remaining budget.
-        for n in pack.relevant_nodes:
-            if not dropped and (n["id"] in seeds or budget.can_fit(f"{n['id']} {n['label']} {n['type']}")):
-                budget.reserve(n["id"], f"{n['id']} {n['label']} {n['type']}", force=n["id"] in seeds)
-                kept.append(n)
+        # Preserve seed priority, but never let a seed exceed the hard budget.
+        # Continue after an oversized node: a later, smaller node may still fit.
+        ordered = sorted(
+            pack.relevant_nodes,
+            key=lambda node: (
+                node["id"] not in seeds,
+                -float(node.get("relevance_score", 0.0)),
+            ),
+        )
+        for node in ordered:
+            text = f"{node['id']} {node['label']} {node['type']}"
+            if budget.can_fit(text):
+                budget.reserve(node["id"], text)
+                kept.append(node)
             else:
                 dropped = True
         if dropped:
-            logger.info("Token budget: dropped %d low-relevance node(s)", len(pack.relevant_nodes) - len(kept))
+            logger.info(
+                "Token budget: dropped %d node(s) that did not fit",
+                len(pack.relevant_nodes) - len(kept),
+            )
         pack.relevant_nodes = kept
         pack.required_files = [f for f in pack.required_files if any(
             n.get("file_path") == f or f in n.get("file_path", "") for n in kept
         )] if kept else []
-        pack.token_estimate = sum(node_cost(n) for n in kept)
+        pack.token_estimate = budget.used
 
     def _estimate_tokens(self, pack):
         self._token_budget.reset()
