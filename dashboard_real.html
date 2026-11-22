@@ -1279,17 +1279,64 @@ async function runAgent(){
 }
 
 // ── Live stream ────────────────────────────────────────────────────────
-function setupRuntimeStream(){
-  const es=new EventSource('/api/stream');
-  es.onmessage=e=>{
-    try{
-      const evt=JSON.parse(e.data);
-      prependEvent(evt);
-      updateMonitor(evt);
-    }catch(err){}
-  };
-  es.onerror=()=>{};
+let runtimeStreamRunning = false;
+async function setupRuntimeStream(){
+  if(runtimeStreamRunning) return;
+  runtimeStreamRunning = true;
+  let retryDelay = 1000;
+  try{
+    while(!document.hidden){
+      if(!ASTRA_TOKEN && !promptForToken()){
+        showTokenExpired();
+        break;
+      }
+      try{
+        const response = await fetch('/api/stream',{
+          headers:{'Accept':'text/event-stream','Authorization':'Bearer '+ASTRA_TOKEN}
+        });
+        if(response.status===401){
+          sessionStorage.removeItem('astra.token');
+          ASTRA_TOKEN='';
+          showTokenExpired();
+          break;
+        }
+        if(!response.ok || !response.body) throw new Error('runtime stream unavailable');
+        retryDelay=1000;
+        const reader=response.body.getReader();
+        const decoder=new TextDecoder();
+        let buffer='';
+        while(!document.hidden){
+          const {value,done}=await reader.read();
+          if(done) break;
+          buffer += decoder.decode(value,{stream:true});
+          const blocks=buffer.split(/\\r?\\n\\r?\\n/);
+          buffer=blocks.pop()||'';
+          for(const block of blocks){
+            const data=block.split(/\\r?\\n/)
+              .filter(line=>line.startsWith('data:'))
+              .map(line=>line.slice(5).trim())
+              .join('\\n');
+            if(!data) continue;
+            try{
+              const evt=JSON.parse(data);
+              prependEvent(evt);
+              updateMonitor(evt);
+            }catch(_err){}
+          }
+        }
+        reader.releaseLock();
+      }catch(err){
+        if(!document.hidden) await new Promise(resolve=>setTimeout(resolve,retryDelay));
+        retryDelay=Math.min(retryDelay*2,30000);
+      }
+    }
+  }finally{
+    runtimeStreamRunning=false;
+  }
 }
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden) setupRuntimeStream();
+});
 function prependEvent(evt){
   const el=$('eventsBody');
   let list=el.querySelector('.events-list');
