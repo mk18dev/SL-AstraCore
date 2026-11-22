@@ -29,6 +29,8 @@ import io, json, os, sys, tempfile
 from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, sys.argv[1])
+import uvicorn
+uvicorn.run = lambda *args, **kwargs: None
 
 repo = tempfile.mkdtemp(prefix="astra_cli_")
 os.makedirs(os.path.join(repo, "pkg"), exist_ok=True)
@@ -41,6 +43,9 @@ os.environ["ASTRA_HOME"] = os.path.join(repo, "home")
 results = {}
 for name, argv in json.loads(sys.argv[2]).items():
     from astra.cli import console_main
+
+    if name == "serve":
+        os.environ.pop("ASTRA_TOKEN", None)
 
     out, err = io.StringIO(), io.StringIO()
     sys.argv = ["astra", *[a.format(repo=repo) for a in argv]]
@@ -61,6 +66,7 @@ CASES = {
     "index": ["index", "{repo}"],
     "context": ["context", "{repo}", "how does charging work"],
     "serve_help": ["serve", "--help"],
+    "serve": ["serve", "--port", "9001"],
     "bad_repo": ["index", "{repo}/does-not-exist"],
     "bad_invocation": ["context"],
 }
@@ -112,3 +118,11 @@ def test_a_bad_invocation_exits_nonzero(cli):
 def test_serve_help_needs_no_repository(cli):
     assert cli["serve_help"]["code"] == 0
     assert "--port" in cli["serve_help"]["out"]
+
+
+
+def test_serve_prints_a_bearer_token_without_putting_it_in_the_url(cli):
+    assert cli["serve"]["code"] == 0, cli["serve"]["err"]
+    assert "http://127.0.0.1:9001/" in cli["serve"]["out"]
+    assert "Access token:" in cli["serve"]["out"]
+    assert "?token=" not in cli["serve"]["out"]
