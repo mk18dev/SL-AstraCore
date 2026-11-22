@@ -132,3 +132,127 @@ def test_provider_does_not_leak_http_error_body_or_key(monkeypatch):
         provider("hello")
     assert "secret-value" not in str(exc.value)
     assert "401" in str(exc.value)
+
+
+
+def test_config_store_defaults_and_environment_overrides(tmp_path, monkeypatch):
+    store = ProviderConfigStore(tmp_path / "missing.json")
+    assert store.load() == ProviderConfig()
+    monkeypatch.setenv("ASTRA_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("ASTRA_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("ASTRA_MODEL", "local-model")
+    monkeypatch.setenv("ASTRA_API_KEY", "local-secret")
+    config = store.load()
+    assert config.base_url == "http://localhost:11434/v1"
+    assert config.model == "local-model"
+    assert config.api_key == "local-secret"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not-json",
+        "[]",
+        '{"version": 99}',
+    ],
+)
+def test_config_store_rejects_corrupt_or_unsupported_files(tmp_path, raw):
+    path = tmp_path / "providers.json"
+    path.write_text(raw, encoding="utf-8")
+    with pytest.raises(ProviderConfigurationError):
+        ProviderConfigStore(path).load()
+
+
+@pytest.mark.parametrize("bad_key", ["bad\\nkey", "bad\\rkey", 123, ["not", "a", "key"]])
+def test_config_store_rejects_invalid_api_keys(tmp_path, bad_key):
+    store = ProviderConfigStore(tmp_path / "providers.json")
+    with pytest.raises(ProviderConfigurationError):
+        store.save(
+            provider="openai-compatible",
+            base_url="https://api.example.com/v1",
+            model="test-model",
+            api_key=bad_key,
+        )
+
+
+def test_provider_rejects_unconfigured_model():
+    provider = OpenAICompatibleProvider(ProviderConfig(model="", base_url=""))
+    with pytest.raises(ProviderConfigurationError, match="not configured"):
+        provider("hello")
+
+
+def test_provider_omits_authorization_when_key_is_not_required(monkeypatch):
+    seen = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    def fake_urlopen(request, timeout):
+        seen["authorization"] = request.get_header("Authorization")
+        return Response()
+
+    monkeypatch.setattr("astra.providers.urlopen", fake_urlopen)
+    assert OpenAICompatibleProvider(ProviderConfig(api_key=""))("hello") == "ok"
+    assert seen["authorization"] is None
+
+
+@pytest.mark.parametrize(
+    ("response_bytes", "message"),
+    [
+        (b"not-json", "invalid JSON"),
+        (b'{"choices":[]}', "did not contain a chat completion"),
+        (b'{"choices":[{"message":{"content":" "}}]}', "empty completion"),
+    ],
+)
+def test_provider_rejects_invalid_completion_payloads(
+    monkeypatch, response_bytes, message
+):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return response_bytes
+
+    monkeypatch.setattr("astra.providers.urlopen", lambda request, timeout: Response())
+    with pytest.raises(ProviderRequestError, match=message):
+        OpenAICompatibleProvider(ProviderConfig())("hello")
+
+
+def test_provider_rejects_oversized_response(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self, size):
+            return b"x" * size
+
+    monkeypatch.setattr("astra.providers.urlopen", lambda request, timeout: Response())
+    with pytest.raises(ProviderRequestError, match="exceeded 1 MiB"):
+        OpenAICompatibleProvider(ProviderConfig())("hello")
+
+
+def test_provider_sanitizes_connection_errors(monkeypatch):
+    from urllib.error import URLError
+
+    def fail_urlopen(request, timeout):
+        raise URLError("secret transport details")
+
+    monkeypatch.setattr("astra.providers.urlopen", fail_urlopen)
+    with pytest.raises(ProviderRequestError) as exc:
+        OpenAICompatibleProvider(ProviderConfig(api_key="secret"))("hello")
+    assert "secret transport details" not in str(exc.value)
+    assert "secret" not in str(exc.value)
