@@ -149,7 +149,7 @@ def test_mutator_single_write_100_nodes():
         for node in nodes:
             mutator.apply_node_upsert(node)
         elapsed = time.perf_counter() - t0
-        print(f"\\n  [kpi] single writes 100 nodes {elapsed:.3f}s")
+        print(f"\n  [kpi] single writes 100 nodes {elapsed:.3f}s")
         assert elapsed < KPI["mutator_single_write_100"] or not STRICT_KPI
         assert storage.node_count() == 100
         storage.close()
@@ -162,8 +162,8 @@ def _make_tiny_repository(root: Path, file_count: int) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     for index in range(file_count):
         (root / f"module_{index}.py").write_text(
-            f"def feature_{index}(value):\\n"
-            f"    return value + {index}\\n",
+            f"def feature_{index}(value):\n"
+            f"    return value + {index}\n",
             encoding="utf-8",
         )
     return root
@@ -183,7 +183,7 @@ def test_context_engine_50_file_query_latency(tmp_path):
         str(root), [], "inspect feature_25 implementation", max_tokens=4000
     )
     elapsed = time.perf_counter() - started
-    print(f"\\n  [kpi] context query 50 files {elapsed:.3f}s")
+    print(f"\n  [kpi] context query 50 files {elapsed:.3f}s")
     assert pack.nodes
     assert pack.total_tokens <= pack.token_budget
     assert elapsed < KPI["context_engine_50_nodes"] or not STRICT_KPI
@@ -202,7 +202,7 @@ def test_full_pipeline_10_file_latency(tmp_path):
         str(root), [], "inspect feature_5 implementation", max_tokens=2000
     )
     elapsed = time.perf_counter() - started
-    print(f"\\n  [kpi] full pipeline 10 files {elapsed:.3f}s")
+    print(f"\n  [kpi] full pipeline 10 files {elapsed:.3f}s")
     assert record.file_count >= 10
     assert pack.nodes
     assert elapsed < KPI["full_pipeline_10_files"] or not STRICT_KPI
