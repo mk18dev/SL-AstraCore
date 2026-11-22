@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+import os
 from typing import Protocol
 
 from astra.ir.models import IRFileParseResult
@@ -34,13 +35,13 @@ class ParserRegistry:
     def register(self, adapter: ParserAdapter) -> None:
         self._adapters[adapter.language] = adapter
         for ext in adapter.file_extensions:
-            self._extension_map[ext] = adapter
+            self._extension_map[ext.lower()] = adapter
 
     def get_by_language(self, language: str) -> ParserAdapter | None:
         return self._adapters.get(language)
 
     def get_by_file_path(self, file_path: str) -> ParserAdapter | None:
-        ext = "." + file_path.split(".")[-1] if "." in file_path else ""
+        ext = os.path.splitext(file_path)[1].lower()
         return self._extension_map.get(ext)
 
     def can_parse(self, file_path: str) -> bool:
@@ -98,14 +99,15 @@ class _JSTSTreeSitterAdapter:
         return _TREE_SITTER_JSTS_EXTENSIONS
 
     def can_parse(self, file_path: str) -> bool:
-        return file_path.endswith(_TREE_SITTER_JSTS_EXTENSIONS)
+        return file_path.lower().endswith(_TREE_SITTER_JSTS_EXTENSIONS)
 
     def parse(self, file_path: str, content: str):
-        if file_path.endswith(".tsx"):
+        suffix = os.path.splitext(file_path)[1].lower()
+        if suffix == ".tsx":
             if self._tsx is not None:
                 return self._tsx.parse(file_path, content)
             return self._ts.parse(file_path, content)
-        if file_path.endswith((".ts",)):
+        if suffix == ".ts":
             return self._ts.parse(file_path, content)
         return self._js.parse(file_path, content)
 
