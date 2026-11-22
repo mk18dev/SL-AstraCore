@@ -681,9 +681,10 @@ class RuntimeOrchestrator:
         engine = TaskContextEngine(
             kg, document_frequency=frequency, files_indexed=files_indexed
         )
+        frequency, files_indexed = engine._ranking.carried_over()
         self._document_frequency[record.root_path] = (
             signature,
-            engine._ranking.carried_over(),
+            frequency,
             files_indexed,
         )
         if max_tokens and max_tokens > 0:
