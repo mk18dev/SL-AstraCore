@@ -231,3 +231,24 @@ def test_gitignore_rules_skip_files(tmp_path):
     names = [Path(f).as_posix() for f in files]
     assert any(f.endswith("keep.py") for f in names)
     assert not any("generated" in f or "vendor" in f for f in names)
+
+
+
+def test_astraignore_and_shared_wildcard_rules_skip_files(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "keep.py").write_text(MODELS_PY)
+    (tmp_path / "generated").mkdir()
+    (tmp_path / "generated" / "skip.py").write_text(MODELS_PY)
+    (tmp_path / "cache.egg-info").mkdir()
+    (tmp_path / "cache.egg-info" / "metadata.py").write_text(MODELS_PY)
+    (tmp_path / "private.secret").write_text("SECRET = True\n")
+    (tmp_path / ".astraignore").write_text("generated/\n*.secret\n")
+
+    runtime = RuntimeOrchestrator(parser_registry=ParserRegistry())
+    files = runtime._scan_repo_files(str(tmp_path))
+    names = [Path(path).as_posix() for path in files]
+
+    assert any(name.endswith("keep.py") for name in names)
+    assert not any("generated" in name for name in names)
+    assert not any("cache.egg-info" in name for name in names)
+    assert not any(name.endswith("private.secret") for name in names)
