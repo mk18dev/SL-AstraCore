@@ -83,10 +83,6 @@ class ContextEngine:
         # instance accumulates used across calls until packs silently starve.
         budget.reset()
 
-        def node_cost(n):
-            text = f"{n['id']} {n['label']} {n['type']}"
-            return budget.estimate(text)
-
         seeds = set(pack.metadata.get("seed_ids", ()))
         kept = []
         dropped = False
