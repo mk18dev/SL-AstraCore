@@ -43,8 +43,10 @@ def _tokens(text: str) -> set[str]:
             piece = piece.lower()
             if len(piece) > 2 and piece not in _STOPWORDS:
                 found.add(piece)
-        # camelCase and PascalCase: parseFile -> parse, file
-        for piece in re.findall(r"[A-Z]+(?![a-z])|[A-Z][a-z]+|[a-z]+", raw):
+        # camelCase and PascalCase: parseFile -> parse, file; HTTPServer -> http, server.
+        expanded = re.sub(r"([a-z0-9])([A-Z])", r"\\1 \\2", raw)
+        expanded = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\\1 \\2", expanded)
+        for piece in _WORD.findall(expanded):
             piece = piece.lower()
             if len(piece) > 2 and piece not in _STOPWORDS:
                 found.add(piece)
