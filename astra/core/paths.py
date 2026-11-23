@@ -58,11 +58,17 @@ def resolve_repo_file(root: str | Path, relative_path: str) -> Path:
     if not os.path.isdir(repository):
         raise UnsafeRepositoryPath("repository root is not an existing directory")
 
-    # Normalize and resolve links before the containment check. The explicit
-    # separator-terminated prefix avoids accepting sibling paths such as
-    # /workspace/project-backup when the registered root is /workspace/project.
-    candidate = os.path.realpath(os.path.join(repository, normalized))
-    repository_prefix = repository.rstrip(os.sep) + os.sep
+    # Normalize before checking containment. Checking a separator-terminated
+    # root prefix avoids accepting siblings such as /workspace/project-backup
+    # when the registered root is /workspace/project.
+    repository_prefix = repository if repository.endswith(os.sep) else repository + os.sep
+    normalized_candidate = os.path.normpath(os.path.join(repository, normalized))
+    if normalized_candidate != repository and not normalized_candidate.startswith(repository_prefix):
+        raise UnsafeRepositoryPath("path resolves outside the repository")
+
+    # Resolve symlinks after lexical normalization, then repeat the boundary
+    # check so an in-repository link cannot redirect the operation elsewhere.
+    candidate = os.path.realpath(normalized_candidate)
     if candidate != repository and not candidate.startswith(repository_prefix):
         raise UnsafeRepositoryPath("path resolves outside the repository")
 
