@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
@@ -53,17 +54,19 @@ def resolve_repo_file(root: str | Path, relative_path: str) -> Path:
         if device_name in _WINDOWS_RESERVED:
             raise UnsafeRepositoryPath("reserved device names are not allowed")
 
-    repository = Path(root).resolve()
-    if not repository.is_dir():
+    repository = os.path.realpath(os.fspath(root))
+    if not os.path.isdir(repository):
         raise UnsafeRepositoryPath("repository root is not an existing directory")
 
-    candidate = repository.joinpath(*parts).resolve()
-    try:
-        candidate.relative_to(repository)
-    except ValueError:
-        raise UnsafeRepositoryPath("path resolves outside the repository") from None
+    # Normalize and resolve links before the containment check. The explicit
+    # separator-terminated prefix avoids accepting sibling paths such as
+    # /workspace/project-backup when the registered root is /workspace/project.
+    candidate = os.path.realpath(os.path.join(repository, normalized))
+    repository_prefix = repository.rstrip(os.sep) + os.sep
+    if candidate != repository and not candidate.startswith(repository_prefix):
+        raise UnsafeRepositoryPath("path resolves outside the repository")
 
     if candidate == repository:
         raise UnsafeRepositoryPath("a file path must identify a file inside the repository")
 
-    return candidate
+    return Path(candidate)

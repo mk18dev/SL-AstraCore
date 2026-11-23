@@ -334,3 +334,35 @@ def test_fingerprint_files_ignores_unsafe_paths(repo):
         edits=(ProposedEdit(path="../outside.py", old_text="x = 1", new_text="x = 2"),)
     )
     assert fingerprint_files(reviewed, str(repo)) == {}
+
+
+def test_staged_files_never_gain_group_or_world_permissions(repo):
+    from astra.agent import apply as apply_module
+
+    staged = apply_module._write_temp_file(
+        repo / "billing.py",
+        "staged = True\n",
+        0o777,
+        "stage",
+    )
+    try:
+        mode = os.stat(staged).st_mode & 0o777
+        assert mode & 0o077 == 0
+        assert mode & 0o700 == 0o700
+    finally:
+        staged.unlink()
+
+
+def test_resolved_paths_do_not_accept_sibling_prefixes(tmp_path):
+    from astra.core.paths import UnsafeRepositoryPath, resolve_repo_file
+
+    root = tmp_path / "repo"
+    sibling = tmp_path / "repo-backup"
+    root.mkdir()
+    sibling.mkdir()
+    (sibling / "secret.py").write_text("SECRET = True\n", encoding="utf-8")
+
+    # The canonical-prefix check must compare path components, not a raw root
+    # prefix that also matches a similarly named sibling directory.
+    with pytest.raises(UnsafeRepositoryPath):
+        resolve_repo_file(root, "../repo-backup/secret.py")

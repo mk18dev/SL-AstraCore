@@ -38,7 +38,9 @@ def _write_temp_file(target: Path, content: str, mode: int, purpose: str) -> Pat
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.chmod(temporary, mode)
+        # Keep staged source/backup copies private. Existing group/world
+        # permissions are deliberately not propagated to temporary files.
+        os.chmod(temporary, stat.S_IMODE(mode) & 0o700)
         return Path(temporary)
     except BaseException:
         with contextlib.suppress(OSError):
