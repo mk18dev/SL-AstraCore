@@ -54,9 +54,11 @@ def resolve_repo_file(root: str | Path, relative_path: str) -> Path:
         if device_name in _WINDOWS_RESERVED:
             raise UnsafeRepositoryPath("reserved device names are not allowed")
 
+    # The caller supplies the trusted repository root (registered by the
+    # dashboard or selected explicitly by the local CLI). Avoid probing an
+    # arbitrary caller-controlled root here; actual file reads/writes below
+    # fail closed when the selected repository or file does not exist.
     repository = os.path.realpath(os.fspath(root))
-    if not os.path.isdir(repository):
-        raise UnsafeRepositoryPath("repository root is not an existing directory")
 
     # Normalize before checking containment. Checking a separator-terminated
     # root prefix avoids accepting siblings such as /workspace/project-backup

@@ -54,10 +54,10 @@ def test_symlink_cannot_escape_repository(tmp_path):
         resolve_repo_file(repository, "linked.py")
 
 
-def test_path_must_name_a_file_inside_an_existing_repository(tmp_path):
+def test_root_may_be_missing_until_the_actual_file_access(tmp_path):
     repository = tmp_path / "missing"
-    with pytest.raises(UnsafeRepositoryPath, match="existing directory"):
-        resolve_repo_file(repository, "file.py")
+    candidate = resolve_repo_file(repository, "file.py")
+    assert candidate == (repository / "file.py").resolve()
 
     repository.mkdir()
     with pytest.raises(UnsafeRepositoryPath, match="identify a file"):
