@@ -48,7 +48,7 @@ jobs:
           python -m pytest tests/ -q --tb=short -rfE 2>&1 | tee tests-output.txt
           code="${PIPESTATUS[0]}"
           echo "pytest exit code: $code"
-          exit $code
+          exit "$code"
       - name: Lint
         run: python -m ruff check astra/ tests/ dashboard_app.py coverage.py
 

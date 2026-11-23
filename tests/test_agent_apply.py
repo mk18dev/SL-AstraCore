@@ -7,6 +7,8 @@ of them is the refusals: applying is the one part of the loop that writes.
 """
 
 
+import os
+
 import pytest
 
 from astra.agent.apply import (
@@ -175,3 +177,67 @@ def test_the_fingerprint_map_is_keyed_by_path(repo):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_apply_refuses_parent_directory_traversal(repo):
+    outside = repo.parent / "outside.py"
+    outside.write_text("SECRET = True\n", encoding="utf-8")
+    before = outside.read_text(encoding="utf-8")
+
+    with pytest.raises(ApplyError, match="unsafe repository path"):
+        apply_edit(
+            ProposedEdit(
+                path="../outside.py",
+                old_text="SECRET = True",
+                new_text="SECRET = False",
+            ),
+            str(repo),
+        )
+
+    assert outside.read_text(encoding="utf-8") == before
+
+
+def test_apply_review_rolls_back_earlier_files_when_a_later_replace_fails(
+    repo, monkeypatch
+):
+    from astra.agent import apply as apply_module
+
+    before_billing = (repo / "billing.py").read_text(encoding="utf-8")
+    before_tax = (repo / "tax.py").read_text(encoding="utf-8")
+    edits = (
+        an_edit(),
+        ProposedEdit(path="tax.py", old_text="TAX = 0.2", new_text="TAX = 0.25"),
+    )
+    real_replace = os.replace
+    failed = False
+
+    def fail_second_stage(source, destination):
+        nonlocal failed
+        if (
+            not failed
+            and os.path.basename(source).startswith(".astra-stage-")
+            and os.path.abspath(destination) == os.path.abspath(repo / "tax.py")
+        ):
+            failed = True
+            raise OSError("simulated second-file replace failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(apply_module.os, "replace", fail_second_stage)
+
+    with pytest.raises(ApplyError, match="earlier files were restored"):
+        apply_review(EditReview(edits=edits), str(repo))
+
+    assert failed is True
+    assert (repo / "billing.py").read_text(encoding="utf-8") == before_billing
+    assert (repo / "tax.py").read_text(encoding="utf-8") == before_tax
+    assert not list(repo.glob(".astra-*.tmp"))
+
+
+def test_apply_review_rejects_missing_fingerprint_before_any_write(repo):
+    edit = an_edit()
+    before = (repo / "billing.py").read_text(encoding="utf-8")
+
+    with pytest.raises(ApplyError, match="missing its review fingerprint"):
+        apply_review(EditReview(edits=(edit,)), str(repo), fingerprints={})
+
+    assert (repo / "billing.py").read_text(encoding="utf-8") == before
