@@ -241,3 +241,96 @@ def test_apply_review_rejects_missing_fingerprint_before_any_write(repo):
         apply_review(EditReview(edits=(edit,)), str(repo), fingerprints={})
 
     assert (repo / "billing.py").read_text(encoding="utf-8") == before
+
+
+def test_temp_file_is_cleaned_up_when_fsync_fails(repo, monkeypatch):
+    from astra.agent import apply as apply_module
+
+    def fail_fsync(_fd):
+        raise OSError("simulated fsync failure")
+
+    monkeypatch.setattr(apply_module.os, "fsync", fail_fsync)
+    with pytest.raises(OSError, match="fsync failure"):
+        apply_module._write_temp_file(repo / "billing.py", "new\n", 0o644, "stage")
+
+    assert not list(repo.glob(".astra-*.tmp"))
+
+
+def test_single_file_apply_is_unchanged_when_atomic_replace_fails(repo, monkeypatch):
+    from astra.agent import apply as apply_module
+
+    target = repo / "billing.py"
+    before = target.read_text(encoding="utf-8")
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(apply_module.os, "replace", fail_replace)
+    with pytest.raises(ApplyError, match="could not be written"):
+        apply_edit(an_edit(), str(repo))
+
+    assert target.read_text(encoding="utf-8") == before
+    assert not list(repo.glob(".astra-*.tmp"))
+
+
+def test_apply_review_cleans_staged_files_when_backup_creation_fails(repo, monkeypatch):
+    from astra.agent import apply as apply_module
+
+    target = repo / "billing.py"
+    before = target.read_text(encoding="utf-8")
+    real_write_temp = apply_module._write_temp_file
+
+    def fail_backup(target_path, content, mode, purpose):
+        if purpose == "backup":
+            raise OSError("simulated backup creation failure")
+        return real_write_temp(target_path, content, mode, purpose)
+
+    monkeypatch.setattr(apply_module, "_write_temp_file", fail_backup)
+    with pytest.raises(ApplyError, match="could not stage"):
+        apply_review(EditReview(edits=(an_edit(),)), str(repo))
+
+    assert target.read_text(encoding="utf-8") == before
+    assert not list(repo.glob(".astra-*.tmp"))
+
+
+def test_apply_review_preserves_backup_when_rollback_itself_fails(repo, monkeypatch):
+    from astra.agent import apply as apply_module
+
+    billing = repo / "billing.py"
+    tax = repo / "tax.py"
+    edits = (
+        an_edit(),
+        ProposedEdit(path="tax.py", old_text="TAX = 0.2", new_text="TAX = 0.25"),
+    )
+    real_replace = os.replace
+
+    def fail_second_replace_and_rollback(source, destination):
+        source_name = os.path.basename(source)
+        destination = os.path.abspath(destination)
+        if source_name.startswith(".astra-stage-") and destination == os.path.abspath(tax):
+            raise OSError("simulated second-file replace failure")
+        if source_name.startswith(".astra-backup-") and destination == os.path.abspath(billing):
+            raise OSError("simulated rollback failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(apply_module.os, "replace", fail_second_replace_and_rollback)
+    with pytest.raises(ApplyError, match="rollback was incomplete"):
+        apply_review(EditReview(edits=edits), str(repo))
+
+    assert "return amount" in billing.read_text(encoding="utf-8")
+    assert "TAX = 0.2" in tax.read_text(encoding="utf-8")
+    backups = list(repo.glob(".astra-backup-*.tmp"))
+    assert len(backups) == 1
+
+    # Restore the deliberately preserved recovery copy after checking it.
+    monkeypatch.setattr(apply_module.os, "replace", real_replace)
+    real_replace(backups[0], billing)
+
+
+def test_fingerprint_files_ignores_unsafe_paths(repo):
+    from astra.agent.apply import fingerprint_files
+
+    reviewed = EditReview(
+        edits=(ProposedEdit(path="../outside.py", old_text="x = 1", new_text="x = 2"),)
+    )
+    assert fingerprint_files(reviewed, str(repo)) == {}
