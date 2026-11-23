@@ -337,6 +337,9 @@ def test_fingerprint_files_ignores_unsafe_paths(repo):
 
 
 def test_staged_files_never_gain_group_or_world_permissions(repo):
+    if os.name == "nt":
+        pytest.skip("Windows does not expose POSIX group/world permission bits")
+
     from astra.agent import apply as apply_module
 
     staged = apply_module._write_temp_file(
