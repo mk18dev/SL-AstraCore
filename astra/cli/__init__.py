@@ -146,8 +146,8 @@ def _apply(path: str, args) -> int:
     """Write the edits from a reviewed proposal. Refuses a stale one."""
     import json
 
-    from astra.agent.apply import ApplyError, apply_edit
-    from astra.agent.loop import ProposedEdit
+    from astra.agent.apply import ApplyError, apply_review
+    from astra.agent.loop import EditReview, ProposedEdit
 
     try:
         payload = json.loads(Path(args.proposal).read_text(encoding="utf-8"))
@@ -155,31 +155,53 @@ def _apply(path: str, args) -> int:
         print(f"error: could not read the proposal ({exc})", file=sys.stderr)
         return 1
 
-    if not payload.get("clean"):
+    if not isinstance(payload, dict) or payload.get("clean") is not True:
         print("error: the proposal was not reviewed clean", file=sys.stderr)
-        for warning in payload.get("warnings", ()):
+        for warning in payload.get("warnings", ()) if isinstance(payload, dict) else ():
             print(f"  {warning}", file=sys.stderr)
         return 1
 
-    fingerprints = payload.get("fingerprints") or {}
-    for entry in payload.get("edits", ()):
-        edit = ProposedEdit(
-            path=entry.get("path", ""),
-            old_text=entry.get("old_text", ""),
-            new_text=entry.get("new_text", ""),
-            reason=entry.get("reason", ""),
-        )
-        try:
-            apply_edit(edit, path, expected_fingerprint=fingerprints.get(edit.path))
-        except ApplyError as exc:
-            # Stop at the first refusal: the repository is already partly
-            # changed, and continuing would compound a state nobody reviewed.
-            print(f"error: {exc}", file=sys.stderr)
-            print("nothing further was written", file=sys.stderr)
-            return 1
-        print(f"applied {edit.path}")
+    raw_edits = payload.get("edits")
+    fingerprints = payload.get("fingerprints")
+    if not isinstance(raw_edits, list) or (
+        raw_edits and not isinstance(fingerprints, dict)
+    ):
+        print("error: the proposal is missing its edits or review fingerprints", file=sys.stderr)
+        return 1
+    if not raw_edits and fingerprints is None:
+        fingerprints = {}
 
-    if not payload.get("edits"):
+    edits = []
+    for entry in raw_edits:
+        if not isinstance(entry, dict) or not all(
+            isinstance(entry.get(key, ""), str)
+            for key in ("path", "old_text", "new_text", "reason")
+        ):
+            print("error: the proposal contains an invalid edit entry", file=sys.stderr)
+            return 1
+        edits.append(
+            ProposedEdit(
+                path=entry.get("path", ""),
+                old_text=entry.get("old_text", ""),
+                new_text=entry.get("new_text", ""),
+                reason=entry.get("reason", ""),
+            )
+        )
+
+    try:
+        applied = apply_review(
+            EditReview(edits=tuple(edits)),
+            path,
+            fingerprints=fingerprints,
+        )
+    except ApplyError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print("no unreviewed further edits were written", file=sys.stderr)
+        return 1
+
+    for edit_path in applied:
+        print(f"applied {edit_path}")
+    if not applied:
         print("the proposal carried no edits")
     return 0
 

@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
 
+from astra.core.paths import UnsafeRepositoryPath, resolve_repo_file
 from astra.ir.models import IRContextPack
 from astra.patch.analyzer import AstDiff, diff_ast, read_source, score_risk
 
@@ -172,8 +173,6 @@ def review(
     downstream_counts: Optional[Callable[[str], int]] = None,
 ) -> EditReview:
     """Parse and score each edit against the real source, without writing."""
-    from pathlib import Path
-
     review_result = EditReview(edits=edits)
     warnings: list[str] = list(review_result.warnings)
     diffs: list[tuple[str, AstDiff]] = []
@@ -182,7 +181,11 @@ def review(
     downstream = 0
 
     for edit in edits:
-        source_path = Path(root) / edit.path
+        try:
+            source_path = resolve_repo_file(root, edit.path)
+        except UnsafeRepositoryPath as exc:
+            warnings.append(f"{edit.path}: unsafe repository path ({exc})")
+            continue
         try:
             source = read_source(str(source_path))
         except OSError as exc:
