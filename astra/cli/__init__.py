@@ -163,9 +163,13 @@ def _apply(path: str, args) -> int:
 
     raw_edits = payload.get("edits")
     fingerprints = payload.get("fingerprints")
-    if not isinstance(raw_edits, list) or not isinstance(fingerprints, dict):
+    if not isinstance(raw_edits, list) or (
+        raw_edits and not isinstance(fingerprints, dict)
+    ):
         print("error: the proposal is missing its edits or review fingerprints", file=sys.stderr)
         return 1
+    if not raw_edits and fingerprints is None:
+        fingerprints = {}
 
     edits = []
     for entry in raw_edits:
